@@ -1,0 +1,333 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ConceptFlow for Blender
+"""Japanese translation. English is the base language.
+
+Blender shows these strings when Preferences > Interface > Translation is set
+to Japanese. Each entry is (English, Japanese); placeholders such as {name}
+must stay as they are.
+"""
+
+import bpy
+
+JA = (
+    # Panels and labels
+    ("Graybox", "グレーBOX"),
+    ("Branch Tree", "分岐ツリー"),
+    ("Add Part", "パーツを追加"),
+    ("Openings", "開口部"),
+    ("Switch to Object Mode to add parts", "パーツの追加はオブジェクトモードで行います"),
+    ("Save Original", "Originalを保存"),
+    ("Save State", "状態を保存"),
+    ("Go to", "移動"),
+    ("Save the present scene as Original,", "今のシーンをOriginalとして保存し、"),
+    ("then try ideas and branch freely.", "あとは自由にアイデアを試して分岐できます。"),
+    ("Overwrite", "上書き"),
+    ("Delete", "削除"),
+    ("Note", "メモ"),
+    ("Current: {name}", "現在：{name}"),
+    ("Thickness", "厚み"),
+    ("Extras", "その他"),
+
+    # Part types
+    ("None", "なし"),
+    ("Not a ConceptFlow part", "ConceptFlowのパーツではありません"),
+    ("Wall", "壁"),
+    ("Wall section. Doors and windows can cut openings into it",
+     "壁。ドアや窓で開口部をあけられます"),
+    ("Pillar", "柱"),
+    ("Column or pillar", "柱"),
+    ("Stairs", "階段"),
+    ("Straight staircase", "まっすぐな階段"),
+    ("Door", "ドア"),
+    ("Door with a frame", "枠付きのドア"),
+    ("Window", "窓"),
+    ("Window with a frame and glass", "枠とガラス付きの窓"),
+    ("Floor", "床"),
+    ("Floor, ceiling or roof slab", "床・天井・屋根の板"),
+    ("Block", "ブロック"),
+    ("Generic block for furniture, props or large masses", "家具・小物・大きな塊などに使う汎用ブロック"),
+    ("Part Type", "パーツの種類"),
+    ("ConceptFlow part type. Used to swap graybox parts for final assets",
+     "ConceptFlowのパーツの種類。グレーBOXを本番アセットに差し替えるときに使います"),
+    ("Piece", "部位"),
+    ("Building", "建物"),
+    ("Size", "サイズ"),
+    ("Full", "全体"),
+    ("Whole part", "パーツ全体"),
+    ("Solid", "壁面"),
+    ("Wall section between openings", "開口部の間の壁"),
+    ("Header", "上部"),
+    ("Wall section above an opening", "開口部の上の壁"),
+    ("Sill", "下部"),
+    ("Wall section below an opening", "開口部の下の壁"),
+
+    # Tree node origins and properties
+    ("Manual", "手動"),
+    ("Saved by you", "自分で保存した状態"),
+    ("Auto-save", "自動保存"),
+    ("Saved automatically so unsaved changes are never lost", "保存していない変更が消えないよう自動で保存した状態"),
+    ("Before Apply", "適用前"),
+    ("Saved automatically before a variation was applied", "案を適用する前に自動で保存した状態"),
+    ("Free note for this state", "この状態についての自由なメモ"),
+    ("Selected State", "選択中の状態"),
+    ("Include Object Transforms", "オブジェクトの位置も保存"),
+    ("Also save the location, rotation and scale of every object. Turn this off for very large scenes",
+     "すべてのオブジェクトの位置・回転・スケールも保存します。とても大きなシーンではオフにしてください"),
+    ("Created", "作成日時"),
+    ("Origin", "種類"),
+
+    # Add part
+    ("Add Graybox Part", "グレーBOXパーツを追加"),
+    ("Add a graybox part at the 3D cursor", "3Dカーソルの位置にグレーBOXのパーツを追加します"),
+    ("Add a wall at the 3D cursor. Doors and windows can cut openings into it",
+     "3Dカーソルの位置に壁を追加します。ドアや窓で開口部をあけられます"),
+    ("Add a pillar at the 3D cursor", "3Dカーソルの位置に柱を追加します"),
+    ("Add straight stairs at the 3D cursor. They go up towards +Y",
+     "3Dカーソルの位置にまっすぐな階段を追加します。+Y方向に上ります"),
+    ("Add a door. With a ConceptFlow wall active, the door is placed in the wall and the opening is cut",
+     "ドアを追加します。ConceptFlowの壁を選んでいると、壁にはめ込んで開口部をあけます"),
+    ("Add a window. With a ConceptFlow wall active, the window is placed in the wall and the opening is cut",
+     "窓を追加します。ConceptFlowの壁を選んでいると、壁にはめ込んで開口部をあけます"),
+    ("Add a floor slab. Its top is at the 3D cursor", "床の板を追加します。上面が3Dカーソルの高さになります"),
+    ("Add a block for furniture, props or large masses", "家具・小物・大きな塊などに使うブロックを追加します"),
+    ("Part", "パーツ"),
+    ("Width", "幅"),
+    ("Depth", "奥行き"),
+    ("Height", "高さ"),
+    ("Round", "丸型"),
+    ("Make the pillar round", "柱を丸くします"),
+    ("Steps", "段数"),
+    ("Number of steps. 0 = automatic (about 18 cm each)", "段の数。0で自動（1段約18cm）"),
+    ("Sill Height", "窓の下端の高さ"),
+    ("Height of the window bottom above the floor", "床から窓の下端までの高さ"),
+    ("Insert into Active Wall", "選択中の壁にはめ込む"),
+    ("When a ConceptFlow wall is selected and active, place the door or window in it and cut the opening",
+     "ConceptFlowの壁を選んでいるとき、ドアや窓をその壁にはめ込み、開口部をあけます"),
+
+    # Build building
+    ("Build Building", "建物を作る"),
+    ("Build a graybox room or building at the 3D cursor: floors, walls with door and window openings, "
+     "and a roof. Every piece stays a separate part",
+     "3Dカーソルの位置にグレーBOXの部屋や建物を作ります（床、ドアと窓の開口がある壁、屋根）。"
+     "各部分は別々のパーツとして残ります"),
+    ("Size along X", "X方向の大きさ"),
+    ("Size along Y", "Y方向の大きさ"),
+    ("Floors", "階数"),
+    ("Number of storeys", "階の数"),
+    ("Floor Height", "階高"),
+    ("Height of one storey, slab included", "1階分の高さ（床の厚みを含む）"),
+    ("Wall Thickness", "壁の厚み"),
+    ("Slab Thickness", "床の厚み"),
+    ("Doors", "ドアの数"),
+    ("Doors in the front wall of the ground floor (in the back wall when the front is open)",
+     "1階の正面の壁に付けるドアの数（正面をあけているときは背面の壁）"),
+    ("Door Width", "ドアの幅"),
+    ("Door Height", "ドアの高さ"),
+    ("Windows", "窓"),
+    ("Add windows to the walls", "壁に窓を付けます"),
+    ("Window Spacing", "窓の間隔"),
+    ("About one window (or door) for this much wall length", "壁のこの長さごとに窓（またはドア）を約1つ付けます"),
+    ("Window Width", "窓の幅"),
+    ("Window Height", "窓の高さ"),
+    ("Roof", "屋根"),
+    ("Add a flat roof slab", "平らな屋根を付けます"),
+    ("Corner Pillars", "四隅の柱"),
+    ("Add pillars at the four corners", "四隅に柱を付けます"),
+    ("Open Side", "あける面"),
+    ("All four walls", "4面とも壁を作ります"),
+    ("Front", "正面"),
+    ("Leave out the front wall (-Y), handy for looking into a room",
+     "正面（-Y）の壁を作りません。部屋の中をのぞく構図に便利です"),
+    ("Back", "背面"),
+    ("Leave out the back wall (+Y)", "背面（+Y）の壁を作りません"),
+    ("Left", "左"),
+    ("Leave out the left wall (-X)", "左（-X）の壁を作りません"),
+    ("Right", "右"),
+    ("Leave out the right wall (+X)", "右（+X）の壁を作りません"),
+
+    # Openings
+    ("Cut Openings", "開口部をあける"),
+    ("Cut openings in the walls that the selected doors and windows pass through. "
+     "The walls are split into separate pieces",
+     "選んだドアや窓が通っている壁に開口部をあけます。壁は別々のパーツに分かれます"),
+    ("Merge Walls", "壁をつなげる"),
+    ("Join the selected parallel wall pieces back into one solid wall (for example after deleting a door)",
+     "選んだ平行な壁を1枚の壁に戻します（ドアを消したあとなど）"),
+
+    # Branch tree operators
+    ("Save the cameras, lights, world, visibility and transforms as a new state under the current one. "
+     "The first state is called Original",
+     "カメラ・ライト・World・表示状態・位置を、今の状態の下に新しい状態として保存します。"
+     "最初の状態は「Original」になります"),
+    ("Name", "名前"),
+    ("Name of the new state. Empty = automatic", "新しい状態の名前。空欄なら自動"),
+    ("Go to State", "この状態に移動"),
+    ("Restore this state. Unsaved changes are kept automatically, and the next save branches from here",
+     "シーンをこの状態に切り替えます。保存していない変更は自動で残り、次の保存はここから分岐します"),
+    ("Overwrite State", "状態を上書き"),
+    ("Replace the selected state with the present scene", "選んだ状態を今のシーンで置き換えます"),
+    ("Delete State", "状態を削除"),
+    ("Delete the selected state. Its branches stay and move up one level",
+     "選んだ状態を削除します。その先の分岐は残り、1つ上に移ります"),
+    ("Clear Tree", "ツリーを空にする"),
+    ("Delete every saved state of this scene. The scene itself does not change",
+     "このシーンの保存した状態をすべて削除します。シーン自体は変わりません"),
+
+    # Look presets
+    ("Look Presets", "ルックプリセット"),
+    ("Look", "ルック"),
+    ("Active Look", "適用中のルック"),
+    ("No look applied", "ルックなし"),
+    ("Dark, sickly under-light, cold rim light and thick haze",
+     "暗い画面に不気味な下からの光、冷たい輪郭光、濃いもや"),
+    ("Black and white, hard key light and deep shadows", "白黒。硬いキーライトと深い影"),
+    ("Cold blue moon with a small warm practical light", "冷たい青の月明かりと、小さな暖色の灯り"),
+    ("Low warm sun from behind, long shadows and soft haze", "後ろからの低く暖かい太陽、長い影とやわらかいもや"),
+    ("Magenta and cyan lights in a dark, hazy night", "暗くもやのかかった夜に、マゼンタとシアンの光"),
+    ("Light Intensity", "ライトの強さ"),
+    ("Brightness of the look's lights", "ルックのライトの明るさ"),
+    ("Haze", "もや"),
+    ("Fill the air with haze so light shafts and depth read better",
+     "空気にもやを入れて、光の筋や奥行きを見やすくします"),
+    ("Haze Amount", "もやの濃さ"),
+    ("Thickness of the haze", "もやの濃さ"),
+    ("Your Lights", "既存のライト"),
+    ("What happens to the lights that were already in the scene", "シーンに元からあったライトの扱い"),
+    ("Keep", "そのまま"),
+    ("Leave your own lights as they are", "元のライトはそのままにします"),
+    ("Dim", "暗く"),
+    ("Turn your own lights down while the look is on", "ルックの間、元のライトを暗くします"),
+    ("Hide", "隠す"),
+    ("Hide your own lights while the look is on", "ルックの間、元のライトを隠します"),
+    ("Apply Look", "ルックを適用"),
+    ("Apply a lighting look. Nothing is destroyed: Reset brings everything back",
+     "ライティングのルックを適用します。何も壊さず、リセットですべて元に戻ります"),
+    ("Reset", "リセット"),
+    ("Reset Look", "ルックをリセット"),
+    ("Remove the look and bring back your world, lights and color settings",
+     "ルックを外し、元のWorld・ライト・カラー設定に戻します"),
+    ("Remove Look Data", "ルックのデータを削除"),
+    ("Reset the look, then delete the look lights and look worlds of this scene. "
+     "Saved states that use a look can no longer bring it back",
+     "ルックをリセットしてから、このシーンのルック用ライトとWorldを削除します。"
+     "ルックを使った保存状態では、そのルックを戻せなくなります"),
+    ("Active: {look}", "適用中：{look}"),
+
+    # Asset swap
+    ("Asset Swap", "アセット差し替え"),
+    ("Swap All", "すべて差し替え"),
+    ("Selected", "選択のみ"),
+    ("All", "すべて"),
+    ("Scope", "対象"),
+    ("Every graybox part in the scene", "シーンのすべてのグレーBOXパーツ"),
+    ("Only the selected parts (or the parts of the selected assets)",
+     "選択したパーツだけ（選択したアセットの元のパーツを含む）"),
+    ("Swap to Assets", "アセットに差し替え"),
+    ("Replace graybox parts with the assets registered for their type. "
+     "The graybox stays, so you can switch back at any time",
+     "グレーBOXのパーツを、種類ごとに登録したアセットに差し替えます。グレーBOXは残るので、いつでも戻せます"),
+    ("Shuffle", "シャッフル"),
+    ("Pick other candidates: change the seed and swap the swapped parts again",
+     "シードを変えて、差し替え済みのパーツに別の候補を選び直します"),
+    ("Clear Swapped Assets", "差し替えたアセットを削除"),
+    ("Delete the swapped assets and show the graybox again", "差し替えたアセットを削除し、グレーBOXを表示に戻します"),
+    ("Register Selected as Assets", "選択をアセットとして登録"),
+    ("Move the selected objects (with their children) into a hidden asset collection for this part type "
+     "and use it for swapping",
+     "選んだオブジェクト（子を含む）を、このパーツの種類用の非表示のアセットコレクションに移し、差し替えに使います"),
+    ("Register Selected as", "選択を登録"),
+    ("Assets by Part Type", "パーツの種類ごとのアセット"),
+    ("Assets face -Y with their length along X", "アセットは-Yが正面、長さはX方向で作ってください"),
+    ("Assets", "アセット"),
+    ("Collection holding the assets for this part type. Each object (or child collection) in it is one candidate",
+     "このパーツの種類のアセットを入れたコレクション。中の各オブジェクト（または子コレクション）が候補になります"),
+    ("Fit", "合わせ方"),
+    ("Auto", "自動"),
+    ("Walls repeat along their length, floors tile, blocks keep their proportions "
+     "and everything else stretches to fit",
+     "壁は長さ方向に並べ、床は敷き詰め、ブロックは比率を保ち、それ以外は伸ばして合わせます"),
+    ("Stretch", "伸ばす"),
+    ("Scale the asset to fill the part exactly", "アセットをパーツの箱にぴったり合わせて伸縮します"),
+    ("Repeat", "並べる"),
+    ("Repeat the asset along the length (and across, for floors) and fit the rest",
+     "アセットを長さ方向（床は縦横）に並べて埋め、残りは伸縮で合わせます"),
+    ("Keep Proportions", "比率を保つ"),
+    ("Scale evenly to fit inside the part, standing on its bottom",
+     "比率を保ったまま箱に収まる大きさにし、底面に置きます"),
+    ("Rotate", "回転"),
+    ("Turn the assets if they were modelled facing another way", "アセットが別の向きで作られているときに回します"),
+    ("0°", "0°"),
+    ("The asset faces -Y with its length along X (Blender front view)",
+     "アセットは-Yが正面、長さはX方向（Blenderのフロントビュー）"),
+    ("90°", "90°"),
+    ("Turn the asset 90° around Z", "Z軸で90°回します"),
+    ("180°", "180°"),
+    ("Turn the asset 180° around Z", "Z軸で180°回します"),
+    ("270°", "270°"),
+    ("Turn the asset 270° around Z", "Z軸で270°回します"),
+    ("Display", "表示"),
+    ("Show the graybox parts", "グレーBOXを表示します"),
+    ("Final", "本番"),
+    ("Show the swapped assets instead of the graybox parts", "グレーBOXの代わりに差し替えたアセットを表示します"),
+    ("Seed", "シード"),
+    ("Changes which candidate each part gets", "各パーツにどの候補を使うかが変わります"),
+    ("Fit Options", "合わせ方の設定"),
+    ("Show fit and rotation per part type", "パーツの種類ごとの合わせ方と回転を表示します"),
+
+    # Reports
+    ("Applied {look} ({count} lights)", "{look}を適用しました（ライト{count}個）"),
+    ("The scene before the look was saved as Original", "ルック前のシーンをOriginalとして保存しました"),
+    ("Look reset", "ルックをリセットしました"),
+    ("Removed {count} look lights", "ルック用のライトを{count}個削除しました"),
+    ("No graybox parts to swap", "差し替えるグレーBOXパーツがありません"),
+    ("No assets registered for these part types yet", "このパーツの種類にはまだアセットが登録されていません"),
+    ("Swapped {count} parts ({instances} instances)", "{count}個のパーツを差し替えました（インスタンス{instances}個）"),
+    ("{count} parts have no assets and stay graybox", "{count}個のパーツはアセットがないためグレーBOXのままです"),
+    ("Nothing has been swapped yet", "まだ何も差し替えていません"),
+    ("Seed {seed}", "シード {seed}"),
+    ("Cleared {count} parts", "{count}個のパーツを元に戻しました"),
+    ("Select the asset objects first", "先にアセットにするオブジェクトを選んでください"),
+    ("Registered {count} objects as {part} assets", "{count}個のオブジェクトを{part}のアセットとして登録しました"),
+    ("ConceptFlow: unexpected error ({error}). You can undo with Ctrl+Z",
+     "ConceptFlow：予期しないエラーが起きました（{error}）。Ctrl+Zで元に戻せます"),
+    ("Built a building with {count} parts", "{count}個のパーツで建物を作りました"),
+    ("No wall overlaps the selected doors or windows", "選んだドアや窓と重なる壁がありません"),
+    ("Cut openings in {count} walls", "{count}枚の壁に開口部をあけました"),
+    ("({count} walls skipped: not simple boxes)", "（{count}枚は単純な箱ではないため飛ばしました）"),
+    ("Select at least two parallel walls", "平行な壁を2つ以上選んでください"),
+    ("Merged walls", "壁をつなげました"),
+    ("({count} walls skipped: not parallel)", "（{count}枚は平行でないため飛ばしました）"),
+    ('Saved state "{name}"', "「{name}」を保存しました"),
+    ("Select a state first", "先に状態を選んでください"),
+    ('Restored "{name}"', "「{name}」に戻しました"),
+    ("({count} missing items skipped)", "（見つからない{count}個は飛ばしました）"),
+    ("Unsaved changes were kept as a new state", "保存していなかった変更は新しい状態として残しました"),
+    ('Overwrote "{name}"', "「{name}」を上書きしました"),
+    ("Deleted the state", "状態を削除しました"),
+    ("Cleared the tree", "ツリーを空にしました"),
+)
+
+CONTEXTS = ("*", "Operator")
+
+
+def _build():
+    ja = {}
+    for msgid, text in JA:
+        for ctx in CONTEXTS:
+            ja[(ctx, msgid)] = text
+    return {"ja_JP": ja}
+
+
+def register():
+    try:
+        bpy.app.translations.unregister(__package__)
+    except Exception:
+        pass
+    bpy.app.translations.register(__package__, _build())
+
+
+def unregister():
+    try:
+        bpy.app.translations.unregister(__package__)
+    except Exception:
+        pass

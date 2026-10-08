@@ -1,0 +1,227 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# ConceptFlow for Blender
+"""Property groups stored on scenes and objects."""
+
+import bpy
+from bpy.props import (
+    BoolProperty,
+    CollectionProperty,
+    EnumProperty,
+    FloatProperty,
+    FloatVectorProperty,
+    IntProperty,
+    PointerProperty,
+    StringProperty,
+)
+from bpy.types import PropertyGroup
+
+PART_ITEMS = [
+    ('NONE', "None", "Not a ConceptFlow part"),
+    ('WALL', "Wall", "Wall section. Doors and windows can cut openings into it"),
+    ('PILLAR', "Pillar", "Column or pillar"),
+    ('STAIRS', "Stairs", "Straight staircase"),
+    ('DOOR', "Door", "Door with a frame"),
+    ('WINDOW', "Window", "Window with a frame and glass"),
+    ('FLOOR', "Floor", "Floor, ceiling or roof slab"),
+    ('BLOCK', "Block", "Generic block for furniture, props or large masses"),
+]
+
+PIECE_ITEMS = [
+    ('FULL', "Full", "Whole part"),
+    ('SOLID', "Solid", "Wall section between openings"),
+    ('HEADER', "Header", "Wall section above an opening"),
+    ('SILL', "Sill", "Wall section below an opening"),
+]
+
+NODE_ORIGIN_ITEMS = [
+    ('MANUAL', "Manual", "Saved by you"),
+    ('AUTO', "Auto-save", "Saved automatically so unsaved changes are never lost"),
+    ('APPLY', "Before Apply", "Saved automatically before a variation was applied"),
+]
+
+
+class CONCEPTFLOW_PG_object(PropertyGroup):
+    part: EnumProperty(
+        name="Part Type",
+        description="ConceptFlow part type. Used to swap graybox parts for final assets",
+        items=PART_ITEMS,
+        default='NONE',
+    )
+    piece: EnumProperty(name="Piece", items=PIECE_ITEMS, default='FULL', options={'HIDDEN'})
+    building: StringProperty(name="Building", default="", options={'HIDDEN'})
+    size: FloatVectorProperty(name="Size", size=3, default=(0.0, 0.0, 0.0), options={'HIDDEN'})
+    sill: FloatProperty(name="Sill Height", default=0.0, options={'HIDDEN'})
+
+
+class CONCEPTFLOW_PG_tree_node(PropertyGroup):
+    # "name" is provided by PropertyGroup.
+    uid: IntProperty(default=0, options={'HIDDEN'})
+    parent_uid: IntProperty(default=-1, options={'HIDDEN'})
+    depth: IntProperty(default=0, options={'HIDDEN'})
+    created: StringProperty(name="Created", default="", options={'HIDDEN'})
+    origin: EnumProperty(name="Origin", items=NODE_ORIGIN_ITEMS, default='MANUAL')
+    note: StringProperty(name="Note", description="Free note for this state", default="")
+    data: StringProperty(default="", options={'HIDDEN'})
+
+
+class CONCEPTFLOW_PG_tree(PropertyGroup):
+    nodes: CollectionProperty(type=CONCEPTFLOW_PG_tree_node)
+    index: IntProperty(name="Selected State", default=0)
+    current_uid: IntProperty(default=-1, options={'HIDDEN'})
+    next_uid: IntProperty(default=1, options={'HIDDEN'})
+    save_transforms: BoolProperty(
+        name="Include Object Transforms",
+        description="Also save the location, rotation and scale of every object. "
+                    "Turn this off for very large scenes",
+        default=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Look presets
+# ---------------------------------------------------------------------------
+
+LOOK_ITEMS = [
+    ('NONE', "None", "No look applied"),
+    ('HORROR', "HORROR", "Dark, sickly under-light, cold rim light and thick haze"),
+    ('NOIR', "NOIR", "Black and white, hard key light and deep shadows"),
+    ('MOONLIGHT', "MOONLIGHT", "Cold blue moon with a small warm practical light"),
+    ('GOLDEN_HOUR', "GOLDEN HOUR", "Low warm sun from behind, long shadows and soft haze"),
+    ('NEON', "NEON", "Magenta and cyan lights in a dark, hazy night"),
+]
+
+EXISTING_LIGHT_ITEMS = [
+    ('KEEP', "Keep", "Leave your own lights as they are"),
+    ('DIM', "Dim", "Turn your own lights down while the look is on"),
+    ('HIDE', "Hide", "Hide your own lights while the look is on"),
+]
+
+
+def _look_update(kind):
+    def update(self, context):
+        from . import look_presets
+        look_presets.on_setting_changed(self, context, kind)
+    return update
+
+
+class CONCEPTFLOW_PG_saved_light(PropertyGroup):
+    # "name" holds the light object name.
+    hide_viewport: BoolProperty(default=False, options={'HIDDEN'})
+    hide_render: BoolProperty(default=False, options={'HIDDEN'})
+    hidden: BoolProperty(default=False, options={'HIDDEN'})
+    energy: FloatProperty(default=0.0, options={'HIDDEN'})
+
+
+class CONCEPTFLOW_PG_look(PropertyGroup):
+    active: EnumProperty(name="Active Look", items=LOOK_ITEMS, default='NONE')
+    intensity: FloatProperty(
+        name="Light Intensity", description="Brightness of the look's lights",
+        min=0.0, soft_max=3.0, default=1.0, update=_look_update('INTENSITY'))
+    fog: BoolProperty(
+        name="Haze", description="Fill the air with haze so light shafts and depth read better",
+        default=True, update=_look_update('FOG'))
+    fog_amount: FloatProperty(
+        name="Haze Amount", description="Thickness of the haze",
+        min=0.0, soft_max=3.0, default=1.0, update=_look_update('FOG'))
+    existing: EnumProperty(
+        name="Your Lights", description="What happens to the lights that were already in the scene",
+        items=EXISTING_LIGHT_ITEMS, default='HIDE', update=_look_update('EXISTING'))
+    # Values from before the first look, used by Reset.
+    original_world: StringProperty(default="", options={'HIDDEN'})
+    cm_view_transform: StringProperty(default="", options={'HIDDEN'})
+    cm_look: StringProperty(default="", options={'HIDDEN'})
+    cm_exposure: FloatProperty(default=0.0, options={'HIDDEN'})
+    cm_gamma: FloatProperty(default=1.0, options={'HIDDEN'})
+    saved_lights: CollectionProperty(type=CONCEPTFLOW_PG_saved_light)
+
+
+# ---------------------------------------------------------------------------
+# Asset swap
+# ---------------------------------------------------------------------------
+
+FIT_ITEMS = [
+    ('AUTO', "Auto", "Walls repeat along their length, floors tile, blocks keep their proportions "
+                     "and everything else stretches to fit"),
+    ('STRETCH', "Stretch", "Scale the asset to fill the part exactly"),
+    ('TILE', "Repeat", "Repeat the asset along the length (and across, for floors) and fit the rest"),
+    ('UNIFORM', "Keep Proportions", "Scale evenly to fit inside the part, standing on its bottom"),
+]
+
+ROTATE_ITEMS = [
+    ('0', "0°", "The asset faces -Y with its length along X (Blender front view)"),
+    ('90', "90°", "Turn the asset 90° around Z"),
+    ('180', "180°", "Turn the asset 180° around Z"),
+    ('270', "270°", "Turn the asset 270° around Z"),
+]
+
+DISPLAY_ITEMS = [
+    ('GRAYBOX', "Graybox", "Show the graybox parts"),
+    ('FINAL', "Final", "Show the swapped assets instead of the graybox parts"),
+]
+
+
+def _swap_display_update(self, context):
+    from . import asset_swap
+    asset_swap.on_display_changed(self, context)
+
+
+class CONCEPTFLOW_PG_swap_slot(PropertyGroup):
+    source: PointerProperty(
+        type=bpy.types.Collection, name="Assets",
+        description="Collection holding the assets for this part type. Each object (or child "
+                    "collection) in it is one candidate")
+    fit: EnumProperty(name="Fit", items=FIT_ITEMS, default='AUTO')
+    rotate: EnumProperty(name="Rotate", items=ROTATE_ITEMS, default='0',
+                         description="Turn the assets if they were modelled facing another way")
+
+
+class CONCEPTFLOW_PG_swap(PropertyGroup):
+    wall: PointerProperty(type=CONCEPTFLOW_PG_swap_slot)
+    pillar: PointerProperty(type=CONCEPTFLOW_PG_swap_slot)
+    stairs: PointerProperty(type=CONCEPTFLOW_PG_swap_slot)
+    door: PointerProperty(type=CONCEPTFLOW_PG_swap_slot)
+    window: PointerProperty(type=CONCEPTFLOW_PG_swap_slot)
+    floor: PointerProperty(type=CONCEPTFLOW_PG_swap_slot)
+    block: PointerProperty(type=CONCEPTFLOW_PG_swap_slot)
+    seed: IntProperty(name="Seed", description="Changes which candidate each part gets",
+                      min=0, default=0)
+    display: EnumProperty(name="Display", items=DISPLAY_ITEMS, default='GRAYBOX',
+                          update=_swap_display_update)
+    show_options: BoolProperty(name="Fit Options", description="Show fit and rotation per part type",
+                               default=False)
+
+
+class CONCEPTFLOW_PG_scene(PropertyGroup):
+    tree: PointerProperty(type=CONCEPTFLOW_PG_tree)
+    look: PointerProperty(type=CONCEPTFLOW_PG_look)
+    swap: PointerProperty(type=CONCEPTFLOW_PG_swap)
+
+
+classes = (
+    CONCEPTFLOW_PG_object,
+    CONCEPTFLOW_PG_tree_node,
+    CONCEPTFLOW_PG_tree,
+    CONCEPTFLOW_PG_saved_light,
+    CONCEPTFLOW_PG_look,
+    CONCEPTFLOW_PG_swap_slot,
+    CONCEPTFLOW_PG_swap,
+    CONCEPTFLOW_PG_scene,
+)
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    bpy.types.Scene.conceptflow = PointerProperty(type=CONCEPTFLOW_PG_scene)
+    bpy.types.Object.conceptflow = PointerProperty(type=CONCEPTFLOW_PG_object)
+
+
+def unregister():
+    for attr_owner in (bpy.types.Object, bpy.types.Scene):
+        if hasattr(attr_owner, "conceptflow"):
+            del attr_owner.conceptflow
+    for cls in reversed(classes):
+        try:
+            bpy.utils.unregister_class(cls)
+        except RuntimeError:
+            pass
