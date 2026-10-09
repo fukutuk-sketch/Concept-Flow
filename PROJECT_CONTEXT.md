@@ -6,7 +6,7 @@
 - 最終更新: 2026-10-08
 - アドオンのバージョン: **0.3.0（開発中）**（`conceptflow/__init__.py` の `bl_info`）
 - 対象 Blender: **4.5.4 LTS**（EEVEE Next）で開発・検証。`bl_info` の最低バージョンは 4.2.0 だが、4.2 での動作は未検証。
-- 状態: v0.1・v0.2 は実装・テスト済み。**v0.3: Auto Variations と、基本的な Compare & Apply はコード実装済み（2026-10-09、Blender 実機では未検証）。Read Views は未着手**（第8章・第11章）。
+- 状態: v0.1・v0.2 は実装・テスト済み。**v0.3: Auto Variations、基本的な Compare & Apply、Read Views（GPUオーバーレイ方式）はコード実装済み（2026-10-09、Blender 実機では未検証）**（第8章・第11章）。
 
 ---
 
@@ -60,6 +60,7 @@
 │   ├─ look_presets.py       Look Presets（非破壊ライティング 5種）
 │   ├─ asset_swap.py         アセット差し替え（グレーBOX ⇄ 本番アセット）
 │   ├─ variations.py         Auto Variations（8/16案を小さくレンダー）＋ 結果の適用（v0.3）
+│   ├─ read_views.py         Read Views（3Dビューへの GPU オーバーレイ：グレースケール/シルエット/三分割/ぼかし）
 │   ├─ ui.py                 サイドバーのパネル
 │   └─ translations.py       日本語翻訳（英語が基本）
 ├─ tools/                    開発用スクリプト（アドオンには含めない）
@@ -82,7 +83,7 @@
 ## 4. アーキテクチャ
 
 ### 4.1 登録（`__init__.py`）
-`_MODULES = (translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
+`_MODULES = (translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, read_views, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
 
 ### 4.2 共通（`common.py`）
 - `iface / tip / rpt`: 実行時に組み立てる UI 文字・ツールチップ・レポートの翻訳。
@@ -116,7 +117,7 @@
 
 ### 4.5 翻訳（`translations.py`）
 `JA` タプルの列 `(English, 日本語)`。コンテキストは `"*"` と `"Operator"`。`{name}` などのプレースホルダーはそのまま残す。`bpy.app.translations.register(__package__, ...)`。
-検査: `python3 tools/i18n_check.py conceptflow` → 現在 277 文字列 / 翻訳 275（未使用: "Save Original" のみ）。
+検査: `python3 tools/i18n_check.py conceptflow` → 現在 303 文字列 / 翻訳 301（未使用: "Save Original" のみ）。
 
 ---
 
@@ -247,6 +248,12 @@ Reference Board、Composition Solver、進化型生成、Change Detector、カ�
 - 出力: `.blend` の隣の `ConceptFlow_Renders/<blend名>_<日時>/vNN.png` ＋ `contact_sheet.png`（numpy。**文字ラベルは未実装**。ラベルはパネルのボタン名に表示）。未保存の .blend は一時フォルダ。
 - 適用（基本の Compare & Apply）: パネルに `template_icon`（プレビュー画像）＋ボタンを2列で並べる。適用 = `branch_tree.checkpoint(..., 'APPLY')`（"Before Apply"）→ ベースを復元 → 案を適用 → "Var NN: ラベル" として保存。「ベースに戻す」「フォルダを開く」「結果を消去」付き。
 - **Blender 実機で要確認**: (1) モーダル中の `render.render` が動くか・速度、(2) 生成後にシーンが完全に元に戻るか（警告が出ないか）、(3) パネルのサムネイル表示（`template_icon` の見え方・大きさ）、(4) コンタクトシートの向き・色（`image.pixels` の扱い）、(5) 各軸の見た目（壁に近いときのカメラ詰め、広角のドリー量、時間帯ごとの明るさ）、(6) 適用→Branch Tree で戻せるか、(7) 日本語UI、(8) `tools/mock_ui_check.py`（新パネル）。
+
+### 8.6 Read Views の実装メモ（2026-10-09、`read_views.py`、GPUオーバーレイ方式で決定）
+- `SpaceView3D.draw_handler_add(..., 'WINDOW', 'POST_PIXEL')`。Grayscale / Silhouette / Blur は `GPUOffScreen.draw_view3d`（現在のビューの view/window 行列）で描いた画像をシェーダー（`GPUShaderCreateInfo`）で加工して全面に重ねる。Blur は半分の解像度で描いて7×7ガウス。Silhouette は輝度のしきい値（既定0.35、スライダー）。Thirds はカメラ枠（カメラビュー時）または画面全体にガイド線を描く。
+- **シーンのデータは一切変えない**（カラーマネジメントやカメラ設定も触らない）。設定は `SKIP_SAVE`（.blend に保存しない）。点数は付けない。パネルに Off ボタン。描画で例外が出たらオーバーレイを止め、パネルに警告（`last_error` に保存）。
+- 未使用時はハンドラーを外す（`on_changed`）。アドオン無効化時もオフスクリーンを解放。
+- **実機で要確認**: シェーダーが 4.5 で通るか、オフスクリーン描画の速度（大きなシーン）、カラーの見え方（`do_color_management=True` で表示と一致するか）、カメラビューでの三分割の位置、複数の3Dビューでの動作、ギズモ/オーバーレイとの重なり、日本語UI、`tools/mock_ui_check.py`。
 
 ## 9. 既知の問題・注意点（ハマりどころ）
 

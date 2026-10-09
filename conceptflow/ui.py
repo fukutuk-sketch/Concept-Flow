@@ -5,7 +5,7 @@
 import bpy
 from bpy.types import Panel
 
-from . import branch_tree, look_presets, variations
+from . import branch_tree, look_presets, read_views, variations
 from .common import icon, iface
 
 PART_BUTTONS = (
@@ -254,12 +254,45 @@ class CONCEPTFLOW_PT_variations(_ConceptFlowPanel, Panel):
         row.operator("conceptflow.variations_clear", text="", icon=icon('X'))
 
 
+class CONCEPTFLOW_PT_read_views(_ConceptFlowPanel, Panel):
+    bl_idname = "CONCEPTFLOW_PT_read_views"
+    bl_label = "Read Views"
+    bl_order = 4
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('HIDE_OFF'))
+
+    def draw(self, context):
+        layout = self.layout
+        rv = context.scene.conceptflow.read_views
+
+        grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+        grid.scale_y = 1.3
+        for key, name, _desc in read_views.VIEW_ITEMS:
+            on = rv.thirds if key == 'THIRDS' else rv.filter == key
+            op = grid.operator("conceptflow.read_view", text=name, depress=on,
+                               icon=icon(read_views.VIEW_ICONS.get(key, 'DOT')))
+            op.view = key
+        op = grid.operator("conceptflow.read_view", text="Off", icon=icon('X'))
+        op.view = 'OFF'
+
+        if rv.filter == 'SILHOUETTE':
+            layout.prop(rv, "threshold", slider=True)
+        elif rv.filter == 'BLUR':
+            layout.prop(rv, "blur_amount", slider=True)
+        if read_views.error:
+            layout.label(text="This view could not be drawn", icon=icon('ERROR'))
+            layout.label(text="Your scene was not changed")
+        layout.label(text="Views only show the picture. Nothing is scored.", icon=icon('INFO'))
+
+
 classes = (
     CONCEPTFLOW_PT_graybox,
     CONCEPTFLOW_PT_asset_swap,
     CONCEPTFLOW_PT_branch_tree,
     CONCEPTFLOW_PT_look_presets,
     CONCEPTFLOW_PT_variations,
+    CONCEPTFLOW_PT_read_views,
 )
 
 

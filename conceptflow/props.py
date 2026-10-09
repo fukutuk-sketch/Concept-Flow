@@ -234,11 +234,41 @@ class CONCEPTFLOW_PG_variations(PropertyGroup):
     base_view: StringProperty(default="", options={'HIDDEN'})
 
 
+# ---------------------------------------------------------------------------
+# Read views (viewport overlays; not saved in the .blend)
+# ---------------------------------------------------------------------------
+
+READ_FILTER_ITEMS = [
+    ('OFF', "Off", "No filter"),
+    ('GRAYSCALE', "Grayscale", "Values only"),
+    ('SILHOUETTE', "Silhouette", "Black and white shapes"),
+    ('BLUR', "Blur", "Blurred masses"),
+]
+
+
+def _read_update(self, context):
+    from . import read_views
+    read_views.on_changed()
+
+
+class CONCEPTFLOW_PG_read_views(PropertyGroup):
+    filter: EnumProperty(name="Filter", items=READ_FILTER_ITEMS, default='OFF',
+                         options={'SKIP_SAVE'}, update=_read_update)
+    thirds: BoolProperty(name="Thirds", default=False, options={'SKIP_SAVE'}, update=_read_update)
+    threshold: FloatProperty(
+        name="Threshold", description="Brightness where the silhouette turns from black to white",
+        min=0.0, max=1.0, default=0.35, options={'SKIP_SAVE'}, update=_read_update)
+    blur_amount: FloatProperty(
+        name="Blur Amount", description="How strongly the picture is blurred",
+        min=0.5, soft_max=12.0, default=4.0, options={'SKIP_SAVE'}, update=_read_update)
+
+
 class CONCEPTFLOW_PG_scene(PropertyGroup):
     tree: PointerProperty(type=CONCEPTFLOW_PG_tree)
     look: PointerProperty(type=CONCEPTFLOW_PG_look)
     swap: PointerProperty(type=CONCEPTFLOW_PG_swap)
     variations: PointerProperty(type=CONCEPTFLOW_PG_variations)
+    read_views: PointerProperty(type=CONCEPTFLOW_PG_read_views)
 
 
 classes = (
@@ -251,6 +281,7 @@ classes = (
     CONCEPTFLOW_PG_swap,
     CONCEPTFLOW_PG_variation_item,
     CONCEPTFLOW_PG_variations,
+    CONCEPTFLOW_PG_read_views,
     CONCEPTFLOW_PG_scene,
 )
 

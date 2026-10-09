@@ -17,9 +17,9 @@ bl_info = {
 
 import traceback
 
-from . import translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, ui
+from . import translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, read_views, ui
 
-_MODULES = (translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, ui)
+_MODULES = (translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, read_views, ui)
 
 
 def register():
