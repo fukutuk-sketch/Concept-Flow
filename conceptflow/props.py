@@ -88,6 +88,7 @@ LOOK_ITEMS = [
     ('MOONLIGHT', "MOONLIGHT", "Cold blue moon with a small warm practical light"),
     ('GOLDEN_HOUR', "GOLDEN HOUR", "Low warm sun from behind, long shadows and soft haze"),
     ('NEON', "NEON", "Magenta and cyan lights in a dark, hazy night"),
+    ('CUSTOM', "Custom", "A look made by Auto Variations (time of day or atmosphere)"),
 ]
 
 EXISTING_LIGHT_ITEMS = [
@@ -133,6 +134,8 @@ class CONCEPTFLOW_PG_look(PropertyGroup):
     cm_exposure: FloatProperty(default=0.0, options={'HIDDEN'})
     cm_gamma: FloatProperty(default=1.0, options={'HIDDEN'})
     saved_lights: CollectionProperty(type=CONCEPTFLOW_PG_saved_light)
+    # JSON of the look made by Auto Variations (used while active == 'CUSTOM').
+    custom_spec: StringProperty(default="", options={'HIDDEN'})
 
 
 # ---------------------------------------------------------------------------
@@ -191,10 +194,51 @@ class CONCEPTFLOW_PG_swap(PropertyGroup):
                                default=False)
 
 
+# ---------------------------------------------------------------------------
+# Auto variations
+# ---------------------------------------------------------------------------
+
+VARIATION_MODE_ITEMS = [
+    ('SINGLE', "Single", "Change one thing at a time: 8 variations"),
+    ('COMBO', "Combine", "Mix two or more things: 16 variations"),
+]
+
+VARIATION_AXIS_ITEMS = [
+    ('ANGLE', "Angle", "Move the camera around the subject"),
+    ('LENS', "Lens", "Change the focal length and keep the subject size"),
+    ('TIME', "Time of Day", "Change sun, sky and light from dawn to night"),
+    ('ATMOS', "Atmosphere", "Change the haze: mist, dust, smoke, fog"),
+]
+
+
+class CONCEPTFLOW_PG_variation_item(PropertyGroup):
+    # "name" holds the label.
+    spec: StringProperty(default="", options={'HIDDEN'})
+    image: StringProperty(default="", subtype='FILE_PATH', options={'HIDDEN'})
+
+
+class CONCEPTFLOW_PG_variations(PropertyGroup):
+    mode: EnumProperty(name="Mode", items=VARIATION_MODE_ITEMS, default='SINGLE')
+    axis: EnumProperty(name="Change", items=VARIATION_AXIS_ITEMS, default='ANGLE',
+                       description="What to change in Single mode")
+    use_angle: BoolProperty(name="Angle", description=VARIATION_AXIS_ITEMS[0][2], default=True)
+    use_lens: BoolProperty(name="Lens", description=VARIATION_AXIS_ITEMS[1][2], default=False)
+    use_time: BoolProperty(name="Time of Day", description=VARIATION_AXIS_ITEMS[2][2], default=True)
+    use_atmos: BoolProperty(name="Atmosphere", description=VARIATION_AXIS_ITEMS[3][2], default=False)
+    seed: IntProperty(name="Seed", description="Changes the small random differences between variations",
+                      min=0, default=0)
+    items: CollectionProperty(type=CONCEPTFLOW_PG_variation_item)
+    folder: StringProperty(default="", subtype='DIR_PATH', options={'HIDDEN'})
+    sheet: StringProperty(default="", subtype='FILE_PATH', options={'HIDDEN'})
+    base_state: StringProperty(default="", options={'HIDDEN'})
+    base_view: StringProperty(default="", options={'HIDDEN'})
+
+
 class CONCEPTFLOW_PG_scene(PropertyGroup):
     tree: PointerProperty(type=CONCEPTFLOW_PG_tree)
     look: PointerProperty(type=CONCEPTFLOW_PG_look)
     swap: PointerProperty(type=CONCEPTFLOW_PG_swap)
+    variations: PointerProperty(type=CONCEPTFLOW_PG_variations)
 
 
 classes = (
@@ -205,6 +249,8 @@ classes = (
     CONCEPTFLOW_PG_look,
     CONCEPTFLOW_PG_swap_slot,
     CONCEPTFLOW_PG_swap,
+    CONCEPTFLOW_PG_variation_item,
+    CONCEPTFLOW_PG_variations,
     CONCEPTFLOW_PG_scene,
 )
 

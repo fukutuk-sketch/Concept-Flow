@@ -5,7 +5,7 @@
 import bpy
 from bpy.types import Panel
 
-from . import branch_tree, look_presets
+from . import branch_tree, look_presets, variations
 from .common import icon, iface
 
 PART_BUTTONS = (
@@ -204,11 +204,62 @@ class CONCEPTFLOW_PT_look_presets(_ConceptFlowPanel, Panel):
         layout.operator("conceptflow.look_remove_data", icon=icon('TRASH'))
 
 
+class CONCEPTFLOW_PT_variations(_ConceptFlowPanel, Panel):
+    bl_idname = "CONCEPTFLOW_PT_variations"
+    bl_label = "Auto Variations"
+    bl_order = 3
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('RENDER_RESULT'))
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        var = scene.conceptflow.variations
+
+        layout.row(align=True).prop(var, "mode", expand=True)
+        if var.mode == 'SINGLE':
+            layout.row(align=True).prop(var, "axis", expand=True)
+        else:
+            grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, align=True)
+            grid.prop(var, "use_angle", toggle=True)
+            grid.prop(var, "use_lens", toggle=True)
+            grid.prop(var, "use_time", toggle=True)
+            grid.prop(var, "use_atmos", toggle=True)
+        layout.prop(var, "seed")
+
+        col = layout.column()
+        col.scale_y = 1.5
+        text = iface("Generate {count} Variations").format(count=variations.planned_count(var))
+        col.operator("conceptflow.variations_generate", text=text, icon=icon('RENDER_RESULT'),
+                     translate=False)
+        if scene.camera is None:
+            layout.label(text="Set a scene camera first", icon=icon('ERROR'))
+
+        if len(var.items) == 0:
+            return
+
+        grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=False, align=False)
+        for n, item in enumerate(var.items):
+            cell = grid.column(align=True)
+            icon_id = variations.thumb_icon(item.image)
+            if icon_id:
+                cell.template_icon(icon_value=icon_id, scale=5.0)
+            op = cell.operator("conceptflow.variations_apply", text=item.name, translate=False)
+            op.index = n
+
+        row = layout.row(align=True)
+        row.operator("conceptflow.variations_base", icon=icon('LOOP_BACK'))
+        row.operator("conceptflow.variations_open_folder", text="", icon=icon('FILE_FOLDER'))
+        row.operator("conceptflow.variations_clear", text="", icon=icon('X'))
+
+
 classes = (
     CONCEPTFLOW_PT_graybox,
     CONCEPTFLOW_PT_asset_swap,
     CONCEPTFLOW_PT_branch_tree,
     CONCEPTFLOW_PT_look_presets,
+    CONCEPTFLOW_PT_variations,
 )
 
 

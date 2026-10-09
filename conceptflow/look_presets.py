@@ -10,6 +10,7 @@
   states that used them can still be restored. "Remove Look Data" deletes them.
 """
 
+import json
 import math
 
 import bpy
@@ -118,6 +119,16 @@ def label_of(key):
         if ident == key:
             return name
     return key
+
+
+def get_preset(look, key):
+    """Definition of look ``key``. CUSTOM comes from the JSON kept in ``look.custom_spec``."""
+    if key == 'CUSTOM':
+        try:
+            return json.loads(look.custom_spec)
+        except ValueError:
+            return {"sky": None, "fog": None, "cm": None, "lights": []}
+    return PRESETS[key]
 
 
 def is_look_object(ob):
@@ -299,7 +310,10 @@ def _set_fog(world, key, look):
     out = next((n for n in nodes if n.type == 'OUTPUT_WORLD'), None)
     if out is None or not look.fog or look.fog_amount <= 0.0:
         return
-    color, density, aniso = PRESETS[key]["fog"]
+    fog = get_preset(look, key).get("fog")
+    if not fog:
+        return
+    color, density, aniso = fog
     vol = nodes.new('ShaderNodeVolumeScatter')
     vol["cf_fog"] = True
     vol.location = (out.location.x - 220, out.location.y - 200)
@@ -310,7 +324,10 @@ def _set_fog(world, key, look):
 
 
 def _build_world(world, key, look):
-    preset = PRESETS[key]
+    preset = get_preset(look, key)
+    if not preset.get("sky"):  # keep the world's own sky, only the haze is added
+        _set_fog(world, key, look)
+        return
     zenith, horizon, ground = preset["sky"]
     try:
         world.use_nodes = True
@@ -355,17 +372,23 @@ def _build_world(world, key, look):
 
 
 def _look_world(key, base, look):
-    world = next((w for w in bpy.data.worlds if w.get("cf_look") == key and w.library is None), None)
+    keep_sky = not get_preset(look, key).get("sky")
+    world = next((w for w in bpy.data.worlds
+                  if w.get("cf_look") == key and w.library is None and bool(w.get("cf_keep_sky")) == keep_sky),
+                 None)
     if world is None:
         world = base.copy() if base is not None else bpy.data.worlds.new("CF_World_" + key)
-        world.name = "CF_World_" + key.title().replace("_", "")
+        world.name = "CF_World_" + key.title().replace("_", "") + ("Haze" if keep_sky else "")
         world["cf_look"] = key
+        world["cf_keep_sky"] = keep_sky
         world.use_fake_user = True  # kept so saved states can switch back to it
     _build_world(world, key, look)
     return world
 
 
 def _apply_cm(scene, cm):
+    if not cm:
+        return
     view_transform, look_name, exposure = cm
     vs = scene.view_settings
     try:
@@ -443,9 +466,15 @@ def _handle_own_lights(scene, look, view_layer):
 # Public API
 # ---------------------------------------------------------------------------
 
-def apply_look(scene, key, context=None):
-    """Apply look ``key`` to ``scene``. Returns the number of look lights."""
+def apply_look(scene, key, context=None, spec=None, view=None):
+    """Apply look ``key`` to ``scene``. Returns the number of look lights.
+
+    ``spec`` (a look definition, see PRESETS) is only used with key 'CUSTOM'.
+    ``view`` is a result of find_target(); pass it to place the lights for another view.
+    """
     look = scene.conceptflow.look
+    if key == 'CUSTOM':
+        look.custom_spec = json.dumps(spec if spec is not None else get_preset(look, key))
     view_layer = common.view_layer_of(scene)
     if look.active == 'NONE':
         _save_originals(scene, look, view_layer)
@@ -455,8 +484,8 @@ def apply_look(scene, key, context=None):
         if is_look_object(ob):
             _hide(ob, view_layer)
 
-    preset = PRESETS[key]
-    origin, forward, right, up, target, dist = find_target(scene, context)
+    preset = get_preset(look, key)
+    origin, forward, right, up, target, dist = view or find_target(scene, context)
     dist = min(max(dist, 1.5), 60.0)
     frame = (origin, forward, right, up)
     count = 0
@@ -471,8 +500,9 @@ def apply_look(scene, key, context=None):
     world = _look_world(key, base, look)
     if scene.world != world:
         scene.world = world
-    _apply_cm(scene, preset["cm"])
-    _handle_own_lights(scene, look, view_layer)
+    _apply_cm(scene, preset.get("cm"))
+    if not preset.get("keep_lights"):
+        _handle_own_lights(scene, look, view_layer)
     look.active = key
     return count
 
@@ -568,6 +598,7 @@ def _capture(scene):
         "fog": look.fog,
         "fog_amount": round(look.fog_amount, 5),
         "existing": look.existing,
+        "custom": look.custom_spec,
     }
 
 
@@ -590,6 +621,7 @@ def _restore(scene, data, report):
         look.fog = data.get("fog", look.fog)
         look.fog_amount = data.get("fog_amount", look.fog_amount)
         look.existing = data.get("existing", look.existing)
+        look.custom_spec = data.get("custom", "")
     finally:
         _suspend_updates = False
 
@@ -598,7 +630,7 @@ def _restore(scene, data, report):
 # Operators
 # ---------------------------------------------------------------------------
 
-PRESET_ITEMS = [item for item in LOOK_ITEMS if item[0] != 'NONE']
+PRESET_ITEMS = [item for item in LOOK_ITEMS if item[0] not in {'NONE', 'CUSTOM'}]
 
 
 class CONCEPTFLOW_OT_look_apply(Operator):

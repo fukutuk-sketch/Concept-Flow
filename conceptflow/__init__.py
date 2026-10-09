@@ -8,7 +8,7 @@
 bl_info = {
     "name": "ConceptFlow",
     "author": "ConceptFlow",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (4, 2, 0),
     "location": "3D Viewport > Sidebar > ConceptFlow",
     "description": "Graybox, branch tree, looks and variations for concept art",
@@ -17,9 +17,9 @@ bl_info = {
 
 import traceback
 
-from . import translations, props, state, graybox, branch_tree, look_presets, asset_swap, ui
+from . import translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, ui
 
-_MODULES = (translations, props, state, graybox, branch_tree, look_presets, asset_swap, ui)
+_MODULES = (translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, ui)
 
 
 def register():
