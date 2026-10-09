@@ -6,7 +6,7 @@ This repository is **ConceptFlow for Blender**, a Blender add-on that is planned
 
 Short reminders (details are in `PROJECT_CONTEXT.md`):
 
-- The owner is a concept artist, not a programmer. Talk to him in Japanese, keep reports short.
+- The owner is a concept artist, not a programmer. Talk to them in Japanese, keep reports short.
 - The add-on must stand alone: never import the owner's personal "Concept series" add-ons, and use the `CF_` prefix for all new data.
 - UI is English with a Japanese translation in `conceptflow/translations.py`.
 - Before committing: `python3 -m py_compile conceptflow/*.py` and `python3 tools/i18n_check.py conceptflow`.
