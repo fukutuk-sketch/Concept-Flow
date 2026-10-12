@@ -195,6 +195,38 @@ class CONCEPTFLOW_PG_swap(PropertyGroup):
 
 
 # ---------------------------------------------------------------------------
+# Shot maker (the sliders show and change the scene camera)
+# ---------------------------------------------------------------------------
+
+def _shot(name):
+    from . import shot_maker
+    return getattr(shot_maker, name)
+
+
+class CONCEPTFLOW_PG_shot(PropertyGroup):
+    height: FloatProperty(
+        name="Eye Height", description="Height of the camera above the ground (z). It keeps looking at the subject",
+        min=-10.0, soft_min=0.0, soft_max=40.0, unit='LENGTH',
+        get=lambda self: _shot("get_height")(self), set=lambda self, v: _shot("set_height_prop")(self, v))
+    lens: FloatProperty(
+        name="Lens", description="Focal length in millimetres", min=8.0, max=400.0, soft_max=200.0,
+        get=lambda self: _shot("get_lens")(self), set=lambda self, v: _shot("set_lens_prop")(self, v))
+    roll: FloatProperty(
+        name="Roll", description="Tilt of the camera around its viewing direction, in degrees",
+        min=-90.0, max=90.0,
+        get=lambda self: _shot("get_roll")(self), set=lambda self, v: _shot("set_roll_prop")(self, v))
+    dolly: BoolProperty(
+        name="Dolly", description="When the lens or shot changes, move the camera so the subject keeps its size",
+        default=True)
+    keep_aim: BoolProperty(
+        name="Keep Aim", description="When the height changes, keep looking at the same subject", default=True)
+    show_horizon: BoolProperty(
+        name="Horizon Guide", description="Draw the horizon line and the camera height over the camera view",
+        default=False, options={'SKIP_SAVE'},
+        update=lambda self, context: _shot("on_horizon_changed")(self, context))
+
+
+# ---------------------------------------------------------------------------
 # Draw walls settings
 # ---------------------------------------------------------------------------
 
@@ -289,6 +321,7 @@ class CONCEPTFLOW_PG_scene(PropertyGroup):
     variations: PointerProperty(type=CONCEPTFLOW_PG_variations)
     read_views: PointerProperty(type=CONCEPTFLOW_PG_read_views)
     draw: PointerProperty(type=CONCEPTFLOW_PG_draw)
+    shot: PointerProperty(type=CONCEPTFLOW_PG_shot)
 
 
 classes = (
@@ -303,6 +336,7 @@ classes = (
     CONCEPTFLOW_PG_variations,
     CONCEPTFLOW_PG_read_views,
     CONCEPTFLOW_PG_draw,
+    CONCEPTFLOW_PG_shot,
     CONCEPTFLOW_PG_scene,
 )
 

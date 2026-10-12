@@ -5,7 +5,7 @@
 import bpy
 from bpy.types import Panel
 
-from . import branch_tree, graybox_tools, look_presets, read_views, variations
+from . import branch_tree, graybox_tools, look_presets, read_views, shot_maker, variations
 from .common import icon, iface
 
 PART_BUTTONS = (
@@ -346,6 +346,70 @@ class CONCEPTFLOW_PT_read_views(_ConceptFlowPanel, Panel):
         layout.label(text="Views only show the picture. Nothing is scored.", icon=icon('INFO'))
 
 
+class CONCEPTFLOW_PT_shot_maker(_ConceptFlowPanel, Panel):
+    bl_idname = "CONCEPTFLOW_PT_shot_maker"
+    bl_label = "Shot Maker"
+    bl_order = 5
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('CAMERA_DATA'))
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        shot = scene.conceptflow.shot
+        cam = scene.camera
+        row = layout.row(align=True)
+        row.operator("conceptflow.shot_camera", icon=icon('VIEW_CAMERA'))
+        if cam is None or cam.type != 'CAMERA':
+            layout.label(text="Set a scene camera first", icon=icon('ERROR'))
+            return
+        row.operator("view3d.view_camera", text="", icon=icon('CAMERA_DATA'))
+
+        layout.label(text="Shots")
+        grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+        for key in shot_maker.SHOT_ORDER:
+            op = grid.operator("conceptflow.shot_preset", text=iface(shot_maker.SHOTS[key]["label"]),
+                               translate=False)
+            op.kind = key
+
+        col = layout.column(align=True)
+        col.prop(shot, "height")
+        grid = col.grid_flow(row_major=True, columns=3, even_columns=True, align=True)
+        for key in shot_maker.HEIGHT_ORDER:
+            op = grid.operator("conceptflow.shot_height", text=iface(shot_maker.HEIGHTS[key][0]),
+                               translate=False)
+            op.kind = key
+        col.prop(shot, "keep_aim")
+
+        col = layout.column(align=True)
+        col.prop(shot, "lens", slider=True)
+        row = col.row(align=True)
+        for mm in shot_maker.LENS_PRESETS:
+            op = row.operator("conceptflow.shot_lens", text=str(mm), translate=False)
+            op.mm = mm
+        col.prop(shot, "dolly")
+        col = layout.column(align=True)
+        col.prop(shot, "roll", slider=True)
+        col.prop(cam.data, "shift_y", slider=True)
+
+        layout.label(text="Picture Shape")
+        grid = layout.grid_flow(row_major=True, columns=3, even_columns=True, align=True)
+        for key in shot_maker.ASPECT_ORDER:
+            op = grid.operator("conceptflow.shot_aspect", text=shot_maker.ASPECTS[key][0], translate=False)
+            op.kind = key
+
+        layout.label(text="Focus")
+        row = layout.row(align=True)
+        row.operator("conceptflow.shot_focus", icon=icon('RESTRICT_SELECT_OFF'))
+        row.prop(cam.data.dof, "use_dof", text="")
+        sub = layout.column(align=True)
+        sub.active = cam.data.dof.use_dof
+        sub.prop(cam.data.dof, "aperture_fstop")
+        sub.prop(cam.data.dof, "focus_distance")
+        layout.prop(shot, "show_horizon", toggle=True, icon=icon('NORMALIZE_FCURVES'))
+
+
 classes = (
     CONCEPTFLOW_PT_graybox,
     CONCEPTFLOW_PT_draw_walls,
@@ -355,6 +419,7 @@ classes = (
     CONCEPTFLOW_PT_look_presets,
     CONCEPTFLOW_PT_variations,
     CONCEPTFLOW_PT_read_views,
+    CONCEPTFLOW_PT_shot_maker,
 )
 
 

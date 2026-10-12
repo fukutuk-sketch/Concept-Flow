@@ -61,6 +61,7 @@
 │   ├─ look_presets.py       Look Presets（非破壊ライティング 5種）
 │   ├─ asset_swap.py         アセット差し替え（グレーBOX ⇄ 本番アセット）
 │   ├─ variations.py         Auto Variations（8/16案を小さくレンダー）＋ 結果の適用（v0.3）
+│   ├─ shot_maker.py         コンセプトショットメーカー（目線の高さ・レンズ・画面比率・ショットプリセット・地平線ガイド・クリックでピント）
 │   ├─ read_views.py         Read Views（3Dビューへの GPU オーバーレイ：グレースケール/シルエット/三分割/ぼかし）
 │   ├─ ui.py                 サイドバーのパネル
 │   └─ translations.py       日本語翻訳（英語が基本）
@@ -84,7 +85,7 @@
 ## 4. アーキテクチャ
 
 ### 4.1 登録（`__init__.py`）
-`_MODULES = (translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
+`_MODULES = (translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, shot_maker, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
 
 ### 4.2 共通（`common.py`）
 - `iface / tip / rpt`: 実行時に組み立てる UI 文字・ツールチップ・レポートの翻訳。
@@ -118,7 +119,7 @@
 
 ### 4.5 翻訳（`translations.py`）
 `JA` タプルの列 `(English, 日本語)`。コンテキストは `"*"` と `"Operator"`。`{name}` などのプレースホルダーはそのまま残す。`bpy.app.translations.register(__package__, ...)`。
-検査: `python3 tools/i18n_check.py conceptflow` → 現在 379 文字列 / 翻訳 397（未使用の翻訳は動的ラベル用）（未使用: "Save Original" のみ）。
+検査: `python3 tools/i18n_check.py conceptflow` → 現在 約420 文字列（検査で抜け0）（未使用の翻訳は動的ラベル用）（未使用: "Save Original" のみ）。
 
 ---
 
@@ -267,6 +268,11 @@ Reference Board、Composition Solver、進化型生成、Change Detector、カ�
 - `graybox_tools.py`（新規）: **壁を描く**（モーダル。クリックで点、Shift=15°、Ctrl=スナップなし、C=閉じる、Enter/右クリック=完了、Backspace=戻す、Esc=取り消し、閉じたら床スラブ）、**小物13種**（テーブル・いす・ベッド・ソファ・棚・カウンター・ベンチ・樽・木箱・柵・街灯・木・車。BLOCKとして作るので差し替え可）、**階段の種類**（まっすぐ／L字／U字／らせん）、**街並み**（形の違う建物の列、両側、道路）。
 - 実機で要確認: 霧の箱で太陽が効くか・各ルックの見た目、壁を描く操作（座標・スナップ・プレビュー線）、屋根/バルコニーの位置、小物の見た目、街並みの配置（向き・道路）、らせん階段、狭い部屋でのカメラ、適用を戻す、日本語UI、`tools/mock_ui_check.py`。
 
+### 8.8 コンセプトショットメーカー（2026-10-12、`shot_maker.py`。ボードの「cf-shot」案を実装）
+- パネル「Shot Maker」。**ビューからカメラ**（なければ CF_Cam を作成）、**ショット9種**（全景・目の高さ・ヒーロー・寄り・室内広角・俯瞰・ドローン・虫の目・ダッチ。被写体＝カメラが見ている最初の面のまわりに、`variations.find_camera_spot` で壁を避けて配置。適用前に Branch Tree へ自動保存）、**目線の高さ**（虫の目0.15m／子ども1.0／大人1.6／バルコニー5／ドローン30 とスライダー。「狙いを保つ」で同じ被写体を見続ける）、**レンズ**（スライダー＋14/24/35/50/85/135。「ドリー」で被写体の大きさを保つ）、傾き（ロール）、シフトY、**画面の比率**（16:9・2.39:1・1.85:1・3:2・4:3・1:1・9:16。長辺を保つ）、**クリックでピント**（モーダル。被写界深度オン、フォーカス距離を設定）、絞り（F値）、**地平線ガイド**（カメラビューに地平線とカメラの高さを重ねる。`SKIP_SAVE`）。
+- スライダーはシーンのカメラそのものを読み書きする get/set プロパティ。ロール符号・各ショットの位置はオフラインの計算テストで確認（狙いのずれ0、ロール14°が読み戻し14°）。
+- 実機で要確認: パネルの並び、クリックでピントの座標、地平線ガイドの位置（カメラ枠）、ショットの見た目、画面比率の変更、日本語UI。
+
 ## 9. 既知の問題・注意点（ハマりどころ）
 
 ### Blender API
@@ -321,6 +327,7 @@ Reference Board、Composition Solver、進化型生成、Change Detector、カ�
 
 - **v0.1**（小坂さん確認済み）: Graybox ＋ Branch Tree。
 - **v0.2**（2026-10-08、小坂さんへ報告済み・次へ進む確認待ちの状態で v0.3 着手の指示）: Look Presets 5種、Asset Swap。調整: GOLDEN HOUR が閉じた部屋で真っ黒になる問題を、`window` 面光源の追加で解決。HORROR / MOONLIGHT / NOIR を調整。`swap_clear` が孤立した差し替え後オブジェクトも掃除するよう修正。
+- 2026-10-12: コンセプトショットメーカーを追加（8.8）。
 - 2026-10-12: 実機確認を受けた見直し（8.7）。霧を箱ボリュームに変更（太陽が消える問題の対策）、建物ツール拡張（壁を描く・屋根・バルコニー・小物・階段・街並み）、Variations の狭い部屋カメラと適用操作。Blender 実機では未検証。
 - 2026-10-09: リポジトリ構成を整理（`conceptflow-blender-repo/` の中身を直下へ）、`.gitignore` 追加。v0.3 の **Auto Variations** と基本的な **Compare & Apply** を実装（`variations.py`、`look_presets` のカスタムルック対応、UIパネル、翻訳）。Blender 実機では未検証（8.5 の確認リスト）。Read Views は未着手。
 - 2026-10-08: v0.3 の設計メモを作成（第8章）。GitHub 保存用の整理（このファイル、README、`tools/`、`.gitignore`、`CLAUDE.md` を追加。**`conceptflow/` 内のコードは変更していない**）。

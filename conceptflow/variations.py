@@ -36,8 +36,8 @@ SHEET_COLUMNS = 4
 SHEET_GAP = 4
 SINGLE_COUNT = 8
 COMBO_COUNT = 16
-MIN_ELEVATION = -10.0
-MAX_ELEVATION = 80.0
+MIN_ELEVATION = -35.0
+MAX_ELEVATION = 85.0
 
 # ---------------------------------------------------------------------------
 # The values of each axis. Combined mode uses every second value ([::2]),
