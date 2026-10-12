@@ -191,6 +191,40 @@ def new_part(part, size, matrix, collection, *, parent=None, round_pillar=False,
     return obj
 
 
+def new_custom_part(part, mesh, size, matrix, collection, *, slots, parent=None, building="",
+                    piece='FULL', name=None):
+    """Like new_part, but with a mesh made by the caller (``slots`` = graybox material keys)."""
+    for key in slots:
+        mesh.materials.append(graybox_material(key))
+    obj = bpy.data.objects.new(name or mesh.name, mesh)
+    collection.objects.link(obj)
+    if parent is not None:
+        obj.parent = parent
+    obj.matrix_world = matrix
+    props = obj.conceptflow
+    props.part = part
+    props.size = size
+    props.piece = piece
+    props.building = building
+    return obj
+
+
+def prism_mesh(name, profile, thickness):
+    """Prism from a polygon ``profile`` of (x, z) points, extruded along Y (centred)."""
+    bm = bmesh.new()
+    h = thickness / 2.0
+    front = [bm.verts.new((x, -h, z)) for x, z in profile]
+    back = [bm.verts.new((x, h, z)) for x, z in profile]
+    bm.faces.new(list(reversed(front)))
+    bm.faces.new(back)
+    n = len(profile)
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((front[i], front[j], back[j], back[i]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return common.mesh_from_bm(name, bm)
+
+
 def is_part(obj, *parts):
     return obj is not None and obj.type == 'MESH' and obj.conceptflow.part in parts
 
@@ -332,6 +366,179 @@ def merge_walls(walls, reference):
 # ---------------------------------------------------------------------------
 # Operators
 # ---------------------------------------------------------------------------
+
+ROOF_ITEMS = [
+    ('FLAT', "Flat", "A flat roof slab"),
+    ('SHED', "Shed", "One sloping roof surface"),
+    ('GABLE', "Gable", "Two roof surfaces meeting at a ridge, with triangular ends"),
+]
+
+
+def wall_openings(p, wall_matrix, length, wall_height, level, side, collection, building):
+    t = p.wall_thickness
+    slots_n = max(1, int(length // p.window_spacing))
+    door_side = 'BACK' if p.open_side == 'FRONT' else 'FRONT'
+    want_doors = p.doors if (level == 0 and side == door_side) else 0
+    if level > 0 and side == door_side and getattr(p, "balcony", False):
+        want_doors = 1  # a door out to the balcony
+    slots_n = max(slots_n, want_doors)
+    if want_doors and (slots_n - want_doors) % 2 == 1:
+        # Keep the doors centred: same number of windows on both sides.
+        if length / (slots_n + 1) >= p.door_width + 0.3:
+            slots_n += 1
+        elif slots_n - 1 >= want_doors:
+            slots_n -= 1
+    slot_w = length / slots_n
+    centres = [-length / 2.0 + slot_w * (j + 0.5) for j in range(slots_n)]
+    by_centre = sorted(range(slots_n), key=lambda j: abs(centres[j]))
+    door_slots = set(by_centre[:want_doors])
+    openings = []
+    for j, x in enumerate(centres):
+        if j in door_slots:
+            w = min(p.door_width, slot_w - 0.3)
+            h = min(p.door_height, wall_height - 0.1)
+            if w < 0.4 or h < 0.5:
+                continue
+            m = wall_matrix @ Matrix.Translation((x, 0.0, 0.0))
+            openings.append(new_part('DOOR', (w, t + 2 * FRAME_GAP, h), m, collection,
+                                     building=building))
+        elif p.windows:
+            w = min(p.window_width, slot_w - 0.3)
+            h = min(p.window_height, wall_height - p.sill_height - 0.15)
+            if w < 0.2 or h < 0.2:
+                continue
+            m = wall_matrix @ Matrix.Translation((x, 0.0, p.sill_height))
+            openings.append(new_part('WINDOW', (w, t + 2 * FRAME_GAP, h), m, collection,
+                                     building=building, sill=p.sill_height))
+    return openings
+
+
+def build_balcony(coll, building, outward, centre_x, level_z, wall_outer, width, depth, slab, rail=1.0):
+    """A slab with railings on a wall. ``outward`` is the rotation (radians about Z) of the wall frame.
+
+    The wall frame is the front wall's: X along the wall, the balcony sticks out towards -Y.
+    """
+    frame = Matrix.Rotation(outward, 4, 'Z')
+    rt = 0.08
+    y_out = wall_outer - depth / 2.0
+    new_part('FLOOR', (width, depth + 0.1, slab), frame @ Matrix.Translation((centre_x, y_out + 0.05, level_z)),
+             coll, building=building, name="CF_Balcony")
+    z = level_z
+    new_part('WALL', (width, rt, rail), frame @ Matrix.Translation((centre_x, wall_outer - depth + rt / 2.0, z)),
+             coll, building=building, name="CF_Railing")
+    for sx in (-1.0, 1.0):
+        m = frame @ Matrix.Translation((centre_x + sx * (width / 2.0 - rt / 2.0), y_out, z)) @ Matrix.Rotation(math.pi / 2.0, 4, 'Z')
+        new_part('WALL', (depth - rt, rt, rail), m, coll, building=building, name="CF_Railing")
+
+
+def build_roof(coll, building, W, D, top, st, kind, pitch, overhang):
+    """Roof on top of walls that end at height ``top``."""
+    if kind == 'FLAT':
+        new_part('FLOOR', (W, D, st), Matrix.Translation((0.0, 0.0, top + st)), coll,
+                 building=building, name="CF_Roof")
+        return
+    along_x = W >= D
+    ridge_len, span = (W, D) if along_x else (D, W)
+    rot = Matrix.Rotation(0.0 if along_x else math.pi / 2.0, 4, 'Z')
+    theta = math.radians(min(max(pitch, 5.0), 70.0))
+    ov = max(overhang, 0.0)
+    if kind == 'GABLE':
+        half = span / 2.0 + ov
+        rise = math.tan(theta) * span / 2.0
+        length = half / math.cos(theta)
+        z_ridge = top + rise
+        for sgn in (-1.0, 1.0):
+            zc = z_ridge - math.tan(theta) * half / 2.0
+            m = rot @ Matrix.Translation((0.0, sgn * half / 2.0, zc)) @ Matrix.Rotation(-sgn * theta, 4, 'X')
+            new_part('FLOOR', (ridge_len + 2 * ov, length + st, st), m, coll, building=building, name="CF_Roof")
+        profile = [(-span / 2.0, 0.0), (span / 2.0, 0.0), (0.0, rise)]
+        height = rise
+    else:  # SHED
+        rise = math.tan(theta) * span
+        length = (span + 2 * ov) / math.cos(theta)
+        zc = top + rise / 2.0
+        m = rot @ Matrix.Translation((0.0, 0.0, zc)) @ Matrix.Rotation(theta, 4, 'X')
+        new_part('FLOOR', (ridge_len + 2 * ov, length, st), m, coll, building=building, name="CF_Roof")
+        profile = [(-span / 2.0, 0.0), (span / 2.0, 0.0), (span / 2.0, rise)]
+        height = rise
+    t = 0.2
+    for sgn in (-1.0, 1.0):
+        mesh = prism_mesh("CF_GableEnd", profile, t)
+        m = rot @ Matrix.Translation((sgn * (ridge_len / 2.0 - t / 2.0), 0.0, top)) @ Matrix.Rotation(math.pi / 2.0, 4, 'Z')
+        new_custom_part('WALL', mesh, (span, t, max(height, 0.01)), m, coll, slots=['WALL'],
+                        building=building, name="CF_GableEnd")
+
+
+def build_building(scene, p, matrix, parent=None):
+    """Build a graybox building from the settings ``p`` and return its root empty.
+
+    ``p`` has the properties of the Build Building operator. ``matrix`` places the root.
+    """
+    building = uuid.uuid4().hex[:8]
+    gray = graybox_collection(scene)
+    coll = bpy.data.collections.new("CF_Building")
+    coll["cf_role"] = "BUILDING"
+    gray.children.link(coll)
+
+    W, D, H = p.width, p.depth, p.floor_height
+    t, st = p.wall_thickness, min(p.slab_thickness, p.floor_height * 0.5)
+    n = p.floors
+    sides = (
+        ('FRONT', (0.0, -D / 2.0 + t / 2.0), 0.0, W),
+        ('RIGHT', (W / 2.0 - t / 2.0, 0.0), math.pi / 2.0, D - 2.0 * t),
+        ('BACK', (0.0, D / 2.0 - t / 2.0), math.pi, W),
+        ('LEFT', (-W / 2.0 + t / 2.0, 0.0), -math.pi / 2.0, D - 2.0 * t),
+    )
+    # Everything is built around the world origin first, then parented to a root
+    # empty that is moved to ``matrix``.
+    for level in range(n):
+        z0 = level * H
+        new_part('FLOOR', (W, D, st), Matrix.Translation((0.0, 0.0, z0 + st)), coll,
+                 building=building)
+        wall_z = z0 + st
+        wall_h = H - st
+        for side, (cx, cy), rot_z, length in sides:
+            if side == p.open_side or length <= 0.05:
+                continue
+            m = Matrix.Translation((cx, cy, wall_z)) @ Matrix.Rotation(rot_z, 4, 'Z')
+            wall = new_part('WALL', (length, t, wall_h), m, coll, building=building)
+            openings = wall_openings(p, m, length, wall_h, level, side, coll, building)
+            if openings:
+                cut_openings([wall], openings)
+        if getattr(p, "balcony", False) and level >= 1:
+            door_side = 'BACK' if p.open_side == 'FRONT' else 'FRONT'
+            if door_side != p.open_side:
+                depth = getattr(p, "balcony_depth", 1.2)
+                width = min(max(W * 0.5, 1.8), 3.5, W - 0.6)
+                if width > 0.8:
+                    outward = 0.0 if door_side == 'FRONT' else math.pi
+                    build_balcony(coll, building, outward, 0.0, z0 + st, -D / 2.0, width, depth, st)
+    top = n * H
+    if p.roof:
+        build_roof(coll, building, W, D, top, st, getattr(p, "roof_type", 'FLAT'),
+                   getattr(p, "roof_pitch", 30.0), getattr(p, "roof_overhang", 0.3))
+    if p.pillars:
+        ps = max(t * 2.0, 0.2)
+        ph = top + (st if p.roof else 0.0)
+        for sx in (-1.0, 1.0):
+            for sy in (-1.0, 1.0):
+                m = Matrix.Translation((sx * (W / 2.0 - ps / 2.0), sy * (D / 2.0 - ps / 2.0), 0.0))
+                new_part('PILLAR', (ps, ps, ph), m, coll, building=building)
+
+    root = bpy.data.objects.new("CF_Building", None)
+    root.empty_display_type = 'PLAIN_AXES'
+    root.empty_display_size = 1.0
+    root.conceptflow.building = building
+    coll.objects.link(root)
+    for obj in coll.objects:
+        if obj is not root and obj.parent is None:
+            obj.parent = root
+    if parent is not None:
+        root.parent = parent
+        root.matrix_parent_inverse = parent.matrix_world.inverted_safe()
+    root.matrix_world = matrix
+    return root
+
 
 def _cursor_matrix(scene, z_offset=0.0):
     cursor = scene.cursor
@@ -488,7 +695,16 @@ class CONCEPTFLOW_OT_build_building(Operator):
     window_height: FloatProperty(name="Window Height", min=0.2, soft_max=10.0, default=1.3,
                                  unit='LENGTH')
     sill_height: FloatProperty(name="Sill Height", min=0.0, soft_max=5.0, default=0.9, unit='LENGTH')
-    roof: BoolProperty(name="Roof", description="Add a flat roof slab", default=True)
+    roof: BoolProperty(name="Roof", description="Add a roof", default=True)
+    roof_type: EnumProperty(name="Roof Type", items=ROOF_ITEMS, default='FLAT')
+    roof_pitch: FloatProperty(name="Roof Pitch", description="Slope of a shed or gable roof, in degrees",
+                              min=5.0, max=70.0, default=30.0)
+    roof_overhang: FloatProperty(name="Overhang", description="How far a sloping roof sticks out of the walls",
+                                 min=0.0, soft_max=2.0, default=0.3, unit='LENGTH')
+    balcony: BoolProperty(name="Balcony",
+                          description="Add a balcony with a railing and a door on every upper floor "
+                                      "(on the door side)", default=False)
+    balcony_depth: FloatProperty(name="Balcony Depth", min=0.5, soft_max=4.0, default=1.2, unit='LENGTH')
     pillars: BoolProperty(name="Corner Pillars", description="Add pillars at the four corners",
                           default=False)
     open_side: EnumProperty(name="Open Side", items=OPEN_SIDE_ITEMS, default='NONE')
@@ -529,101 +745,25 @@ class CONCEPTFLOW_OT_build_building(Operator):
         col.prop(self, "sill_height")
         col = layout.column(heading="Extras")
         col.prop(self, "roof")
+        sub = col.column(align=True)
+        sub.active = self.roof
+        sub.prop(self, "roof_type", text="")
+        if self.roof_type != 'FLAT':
+            sub.prop(self, "roof_pitch")
+            sub.prop(self, "roof_overhang")
         col.prop(self, "pillars")
-
-    def _wall_openings(self, wall_matrix, length, wall_height, level, side, collection, building):
-        t = self.wall_thickness
-        slots_n = max(1, int(length // self.window_spacing))
-        door_side = 'BACK' if self.open_side == 'FRONT' else 'FRONT'
-        want_doors = self.doors if (level == 0 and side == door_side) else 0
-        slots_n = max(slots_n, want_doors)
-        if want_doors and (slots_n - want_doors) % 2 == 1:
-            # Keep the doors centred: same number of windows on both sides.
-            if length / (slots_n + 1) >= self.door_width + 0.3:
-                slots_n += 1
-            elif slots_n - 1 >= want_doors:
-                slots_n -= 1
-        slot_w = length / slots_n
-        centres = [-length / 2.0 + slot_w * (j + 0.5) for j in range(slots_n)]
-        by_centre = sorted(range(slots_n), key=lambda j: abs(centres[j]))
-        door_slots = set(by_centre[:want_doors])
-        openings = []
-        for j, x in enumerate(centres):
-            if j in door_slots:
-                w = min(self.door_width, slot_w - 0.3)
-                h = min(self.door_height, wall_height - 0.1)
-                if w < 0.4 or h < 0.5:
-                    continue
-                m = wall_matrix @ Matrix.Translation((x, 0.0, 0.0))
-                openings.append(new_part('DOOR', (w, t + 2 * FRAME_GAP, h), m, collection,
-                                         building=building))
-            elif self.windows:
-                w = min(self.window_width, slot_w - 0.3)
-                h = min(self.window_height, wall_height - self.sill_height - 0.15)
-                if w < 0.2 or h < 0.2:
-                    continue
-                m = wall_matrix @ Matrix.Translation((x, 0.0, self.sill_height))
-                openings.append(new_part('WINDOW', (w, t + 2 * FRAME_GAP, h), m, collection,
-                                         building=building, sill=self.sill_height))
-        return openings
+        col.prop(self, "balcony")
+        if self.balcony:
+            sub = col.column()
+            sub.active = self.floors > 1
+            sub.prop(self, "balcony_depth")
 
     @guarded
     def execute(self, context):
         scene = context.scene
-        building = uuid.uuid4().hex[:8]
-        gray = graybox_collection(scene)
-        coll = bpy.data.collections.new("CF_Building")
-        coll["cf_role"] = "BUILDING"
-        gray.children.link(coll)
-
-        W, D, H = self.width, self.depth, self.floor_height
-        t, st = self.wall_thickness, min(self.slab_thickness, self.floor_height * 0.5)
-        n = self.floors
-        sides = (
-            ('FRONT', (0.0, -D / 2.0 + t / 2.0), 0.0, W),
-            ('RIGHT', (W / 2.0 - t / 2.0, 0.0), math.pi / 2.0, D - 2.0 * t),
-            ('BACK', (0.0, D / 2.0 - t / 2.0), math.pi, W),
-            ('LEFT', (-W / 2.0 + t / 2.0, 0.0), -math.pi / 2.0, D - 2.0 * t),
-        )
-        # Everything is built around the world origin first, then parented to a root
-        # empty that is moved to the 3D cursor.
-        for level in range(n):
-            z0 = level * H
-            new_part('FLOOR', (W, D, st), Matrix.Translation((0.0, 0.0, z0 + st)), coll,
-                     building=building)
-            wall_z = z0 + st
-            wall_h = H - st
-            for side, (cx, cy), rot_z, length in sides:
-                if side == self.open_side or length <= 0.05:
-                    continue
-                m = Matrix.Translation((cx, cy, wall_z)) @ Matrix.Rotation(rot_z, 4, 'Z')
-                wall = new_part('WALL', (length, t, wall_h), m, coll, building=building)
-                openings = self._wall_openings(m, length, wall_h, level, side, coll, building)
-                if openings:
-                    cut_openings([wall], openings)
-        top = n * H
-        if self.roof:
-            new_part('FLOOR', (W, D, st), Matrix.Translation((0.0, 0.0, top + st)), coll,
-                     building=building, name="CF_Roof")
-        if self.pillars:
-            ps = max(t * 2.0, 0.2)
-            ph = top + (st if self.roof else 0.0)
-            for sx in (-1.0, 1.0):
-                for sy in (-1.0, 1.0):
-                    m = Matrix.Translation((sx * (W / 2.0 - ps / 2.0), sy * (D / 2.0 - ps / 2.0), 0.0))
-                    new_part('PILLAR', (ps, ps, ph), m, coll, building=building)
-
-        root = bpy.data.objects.new("CF_Building", None)
-        root.empty_display_type = 'PLAIN_AXES'
-        root.empty_display_size = 1.0
-        root.conceptflow.building = building
-        coll.objects.link(root)
-        for obj in coll.objects:
-            if obj is not root and obj.parent is None:
-                obj.parent = root
-        root.matrix_world = _cursor_matrix(scene)
+        root = build_building(scene, self, _cursor_matrix(scene))
         common.select_only(context, [root], root)
-        count = len(coll.objects) - 1
+        count = sum(1 for c in root.children_recursive)
         self.report({'INFO'}, rpt("Built a building with {count} parts").format(count=count))
         return {'FINISHED'}
 

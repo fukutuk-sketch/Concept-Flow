@@ -52,7 +52,7 @@ for f in sorted(pkg.glob("*.py")):
                     for item in ast.literal_eval(node.value): add(item[1], f"{f.name}:{node.lineno}")
 missing = {s: w for s, w in found.items() if s not in ja}
 # names that are user data, not UI
-ignore = {"Original", "Auto-save", "CF_Graybox", "CF_Building", "CF_Roof", "CF_Wall", "CF_Part", "ConceptFlow"}
+ignore = {"Original", "Auto-save", "CF_Graybox", "CF_Building", "CF_Roof", "CF_Wall", "CF_Part", "CF_Balcony", "CF_Railing", "CF_GableEnd", "CF_Floor", "CF_Landing", "CF_Spiral", "CF_Road", "ConceptFlow"}
 for s, w in sorted(missing.items(), key=lambda x: x[1]):
     if s in ignore: continue
     print(f"MISSING  {w:28s} {s!r}")

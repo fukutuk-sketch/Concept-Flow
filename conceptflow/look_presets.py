@@ -13,6 +13,7 @@
 import json
 import math
 
+import bmesh
 import bpy
 from bpy.props import EnumProperty
 from bpy.types import Operator
@@ -224,7 +225,7 @@ def find_target(scene, context):
             if not hit:
                 break
             src = ob.original if ob is not None else None
-            if (loc - origin).length < 0.3 or (src is not None and src.hide_render):
+            if (loc - origin).length < 0.3 or (src is not None and (src.hide_render or is_look_object(src))):
                 p = loc + forward * 1e-3
                 continue
             return origin, forward, right, up, loc.copy(), (loc - origin).length
@@ -300,33 +301,120 @@ def _set_light_data(ob, spec, distance, intensity):
         light.spot_blend = spec.get("blend", 0.3)
 
 
-def _set_fog(world, key, look):
+def _strip_world_fog(world):
+    """Older versions put the haze into the world. That blacks out the sun in EEVEE, so remove it."""
     node_tree = world.node_tree
     if node_tree is None:
         return
-    nodes, links = node_tree.nodes, node_tree.links
-    for node in [n for n in nodes if n.get("cf_fog")]:
-        nodes.remove(node)
-    out = next((n for n in nodes if n.type == 'OUTPUT_WORLD'), None)
-    if out is None or not look.fog or look.fog_amount <= 0.0:
+    for node in [n for n in node_tree.nodes if n.get("cf_fog")]:
+        node_tree.nodes.remove(node)
+
+
+HAZE_MARGIN = 1.3
+HAZE_MIN_HALF = 6.0
+HAZE_MAX_HALF = 60.0
+
+
+def _haze_box(scene):
+    """(centre, half size) of a box that holds the visible scene and the camera."""
+    lo = Vector((math.inf, math.inf, math.inf))
+    hi = Vector((-math.inf, -math.inf, -math.inf))
+    found = False
+    for ob in scene.objects:
+        if ob.type not in {'MESH', 'CURVE', 'SURFACE', 'META', 'FONT'} or is_look_object(ob):
+            continue
+        if all(str(c.get("cf_role", "")).startswith("ASSETS") for c in ob.users_collection):
+            continue  # registered asset sources are not part of the picture
+        for corner in ob.bound_box:
+            p = ob.matrix_world @ Vector(corner)
+            lo = Vector((min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z)))
+            hi = Vector((max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z)))
+            found = True
+    cam = scene.camera
+    if cam is not None:
+        p = cam.matrix_world.translation
+        lo = Vector((min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z)))
+        hi = Vector((max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z)))
+        found = True
+    if not found:
+        return Vector((0.0, 0.0, 3.0)), Vector((HAZE_MIN_HALF, HAZE_MIN_HALF, HAZE_MIN_HALF))
+    centre = (lo + hi) / 2.0
+    half = (hi - lo) / 2.0 * HAZE_MARGIN
+    half = Vector((min(max(half.x, HAZE_MIN_HALF), HAZE_MAX_HALF),
+                   min(max(half.y, HAZE_MIN_HALF), HAZE_MAX_HALF),
+                   min(max(half.z, HAZE_MIN_HALF), HAZE_MAX_HALF)))
+    return centre, half
+
+
+def _haze_material(key, fog, amount):
+    name = "CF_Haze_" + key
+    mat = bpy.data.materials.get(name)
+    if mat is None or mat.library is not None:
+        mat = bpy.data.materials.new(name)
+        mat["cf_look"] = key
+    try:
+        mat.use_nodes = True
+    except Exception:
+        pass
+    nt = mat.node_tree
+    if nt is None:
+        return mat
+    scatter = next((n for n in nt.nodes if n.type == 'VOLUME_SCATTER' and n.get("cf_fog")), None)
+    if scatter is None:
+        nt.nodes.clear()
+        out = nt.nodes.new('ShaderNodeOutputMaterial')
+        out.location = (300, 0)
+        scatter = nt.nodes.new('ShaderNodeVolumeScatter')
+        scatter["cf_fog"] = True
+        scatter.location = (50, 0)
+        nt.links.new(scatter.outputs[0], out.inputs["Volume"])
+    color, density, aniso = fog
+    scatter.inputs["Color"].default_value = (*color, 1.0)
+    scatter.inputs["Density"].default_value = density * amount
+    scatter.inputs["Anisotropy"].default_value = aniso
+    return mat
+
+
+def _haze_object(scene, key):
+    coll = preset_collection(scene, key)
+    ob = next((o for o in coll.objects if o.get("cf_look_role") == "haze"), None)
+    if ob is None or ob.type != 'MESH':
+        bm = bmesh.new()
+        common.bm_box(bm, (-1.0, -1.0, -1.0), (1.0, 1.0, 1.0))
+        mesh = common.mesh_from_bm("CF_Haze_" + key, bm)
+        ob = bpy.data.objects.new("CF_Haze_" + key, mesh)
+        coll.objects.link(ob)
+        ob["cf_look"] = key
+        ob["cf_look_role"] = "haze"
+        ob.display_type = 'WIRE'
+        ob.hide_select = True
+        ob.visible_shadow = False
+    return ob
+
+
+def _update_haze(scene, key, look, view_layer):
+    """Show the haze box of look ``key`` (a volume object: a world volume would black out the sun)."""
+    if key == 'NONE':
         return
     fog = get_preset(look, key).get("fog")
-    if not fog:
+    ob = _haze_object(scene, key)
+    if not fog or not look.fog or look.fog_amount <= 0.0:
+        _hide(ob, view_layer)
         return
-    color, density, aniso = fog
-    vol = nodes.new('ShaderNodeVolumeScatter')
-    vol["cf_fog"] = True
-    vol.location = (out.location.x - 220, out.location.y - 200)
-    vol.inputs["Color"].default_value = (*color, 1.0)
-    vol.inputs["Density"].default_value = density * look.fog_amount
-    vol.inputs["Anisotropy"].default_value = aniso
-    links.new(vol.outputs[0], out.inputs["Volume"])
+    mat = _haze_material(key, fog, look.fog_amount)
+    if ob.data.materials:
+        ob.data.materials[0] = mat
+    else:
+        ob.data.materials.append(mat)
+    centre, half = _haze_box(scene)
+    ob.matrix_world = Matrix.LocRotScale(centre, None, half)
+    _show(ob, view_layer)
 
 
 def _build_world(world, key, look):
     preset = get_preset(look, key)
-    if not preset.get("sky"):  # keep the world's own sky, only the haze is added
-        _set_fog(world, key, look)
+    _strip_world_fog(world)
+    if not preset.get("sky"):  # keep the world's own sky; the haze is a separate object
         return
     zenith, horizon, ground = preset["sky"]
     try:
@@ -368,7 +456,6 @@ def _build_world(world, key, look):
     links.new(ramp.outputs["Color"], bg.inputs["Color"])
     bg.inputs["Strength"].default_value = 1.0
     links.new(bg.outputs["Background"], out.inputs["Surface"])
-    _set_fog(world, key, look)
 
 
 def _look_world(key, base, look):
@@ -504,6 +591,7 @@ def apply_look(scene, key, context=None, spec=None, view=None):
     if not preset.get("keep_lights"):
         _handle_own_lights(scene, look, view_layer)
     look.active = key
+    _update_haze(scene, key, look, view_layer)
     return count
 
 
@@ -540,11 +628,13 @@ def remove_look_data(scene):
     reset_look(scene)
     removed = 0
     for ob in [o for o in scene.objects if is_look_object(o)]:
-        data = ob.data
+        data, kind = ob.data, ob.type
         bpy.data.objects.remove(ob, do_unlink=True)
         if data is not None and data.users == 0:
-            bpy.data.lights.remove(data)
+            (bpy.data.lights if kind == 'LIGHT' else bpy.data.meshes).remove(data)
         removed += 1
+    for mat in [m for m in bpy.data.materials if m.name.startswith("CF_Haze_") and m.users == 0]:
+        bpy.data.materials.remove(mat)
     root = next((c for c in scene.collection.children if c.get("cf_role") == "LOOK"), None)
     if root is not None:
         for child in list(root.children):
@@ -572,8 +662,7 @@ def on_setting_changed(look, context, kind):
                 if ob.get("cf_look") == look.active and ob.type == 'LIGHT' and "cf_base_energy" in ob:
                     ob.data.energy = float(ob["cf_base_energy"]) * look.intensity
         elif kind == 'FOG':
-            if is_look_world(scene.world):
-                _set_fog(scene.world, look.active, look)
+            _update_haze(scene, look.active, look, view_layer)
         elif kind == 'EXISTING':
             _restore_own_lights(scene, look, view_layer)
             _handle_own_lights(scene, look, view_layer)

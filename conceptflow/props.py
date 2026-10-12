@@ -195,6 +195,21 @@ class CONCEPTFLOW_PG_swap(PropertyGroup):
 
 
 # ---------------------------------------------------------------------------
+# Draw walls settings
+# ---------------------------------------------------------------------------
+
+class CONCEPTFLOW_PG_draw(PropertyGroup):
+    height: FloatProperty(name="Wall Height", min=0.3, soft_max=20.0, default=3.0, unit='LENGTH')
+    thickness: FloatProperty(name="Wall Thickness", min=0.03, soft_max=2.0, default=0.2, unit='LENGTH')
+    snap: FloatProperty(name="Grid Snap", description="Snap points to this grid. 0 = no snapping. "
+                                                       "Hold Ctrl while drawing to switch snapping off",
+                        min=0.0, soft_max=5.0, default=0.5, unit='LENGTH')
+    floor_slab: BoolProperty(name="Floor When Closed",
+                             description="Add a floor slab when the walls are closed into a room", default=True)
+    slab: FloatProperty(name="Floor Thickness", min=0.02, soft_max=1.0, default=0.15, unit='LENGTH')
+
+
+# ---------------------------------------------------------------------------
 # Auto variations
 # ---------------------------------------------------------------------------
 
@@ -232,6 +247,10 @@ class CONCEPTFLOW_PG_variations(PropertyGroup):
     sheet: StringProperty(default="", subtype='FILE_PATH', options={'HIDDEN'})
     base_state: StringProperty(default="", options={'HIDDEN'})
     base_view: StringProperty(default="", options={'HIDDEN'})
+    applied_index: IntProperty(default=-1, options={'HIDDEN'})
+    before_uid: IntProperty(default=-1, options={'HIDDEN'})
+    columns: IntProperty(name="Columns", description="How many thumbnails per row",
+                         min=1, max=4, default=2)
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +288,7 @@ class CONCEPTFLOW_PG_scene(PropertyGroup):
     swap: PointerProperty(type=CONCEPTFLOW_PG_swap)
     variations: PointerProperty(type=CONCEPTFLOW_PG_variations)
     read_views: PointerProperty(type=CONCEPTFLOW_PG_read_views)
+    draw: PointerProperty(type=CONCEPTFLOW_PG_draw)
 
 
 classes = (
@@ -282,6 +302,7 @@ classes = (
     CONCEPTFLOW_PG_variation_item,
     CONCEPTFLOW_PG_variations,
     CONCEPTFLOW_PG_read_views,
+    CONCEPTFLOW_PG_draw,
     CONCEPTFLOW_PG_scene,
 )
 

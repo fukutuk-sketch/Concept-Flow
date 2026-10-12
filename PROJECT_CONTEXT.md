@@ -3,7 +3,7 @@
 > 新しいセッション（Claude Code のクラウドセッションなど）は、**最初にこのファイルを全部読む**こと。
 > 作業を終えたら、変わった点（実装済み・未実装・既知の問題・決定事項）をこのファイルに反映する。
 
-- 最終更新: 2026-10-08
+- 最終更新: 2026-10-12
 - アドオンのバージョン: **0.3.0（開発中）**（`conceptflow/__init__.py` の `bl_info`）
 - 対象 Blender: **4.5.4 LTS**（EEVEE Next）で開発・検証。`bl_info` の最低バージョンは 4.2.0 だが、4.2 での動作は未検証。
 - 状態: v0.1・v0.2 は実装・テスト済み。**v0.3: Auto Variations、基本的な Compare & Apply、Read Views（GPUオーバーレイ方式）はコード実装済み（2026-10-09、Blender 実機では未検証）**（第8章・第11章）。
@@ -56,6 +56,7 @@
 │   ├─ props.py              PropertyGroup 一式（Scene.conceptflow / Object.conceptflow）
 │   ├─ state.py              Branch Tree 用の状態キャプチャ/復元（プロバイダー方式）
 │   ├─ graybox.py            グレーBOX（壁・柱・階段・ドア・窓・床・ブロック、建物生成、開口部）
+│   ├─ graybox_tools.py      壁を描く（クリック）／小物・家具／階段の種類／街並み
 │   ├─ branch_tree.py        分岐ツリー（保存・移動・上書き・削除・チェックポイント）
 │   ├─ look_presets.py       Look Presets（非破壊ライティング 5種）
 │   ├─ asset_swap.py         アセット差し替え（グレーBOX ⇄ 本番アセット）
@@ -83,7 +84,7 @@
 ## 4. アーキテクチャ
 
 ### 4.1 登録（`__init__.py`）
-`_MODULES = (translations, props, state, graybox, branch_tree, look_presets, asset_swap, variations, read_views, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
+`_MODULES = (translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
 
 ### 4.2 共通（`common.py`）
 - `iface / tip / rpt`: 実行時に組み立てる UI 文字・ツールチップ・レポートの翻訳。
@@ -117,7 +118,7 @@
 
 ### 4.5 翻訳（`translations.py`）
 `JA` タプルの列 `(English, 日本語)`。コンテキストは `"*"` と `"Operator"`。`{name}` などのプレースホルダーはそのまま残す。`bpy.app.translations.register(__package__, ...)`。
-検査: `python3 tools/i18n_check.py conceptflow` → 現在 303 文字列 / 翻訳 301（未使用: "Save Original" のみ）。
+検査: `python3 tools/i18n_check.py conceptflow` → 現在 379 文字列 / 翻訳 397（未使用の翻訳は動的ラベル用）（未使用: "Save Original" のみ）。
 
 ---
 
@@ -255,6 +256,17 @@ Reference Board、Composition Solver、進化型生成、Change Detector、カ�
 - 未使用時はハンドラーを外す（`on_changed`）。アドオン無効化時もオフスクリーンを解放。
 - **実機で要確認**: シェーダーが 4.5 で通るか、オフスクリーン描画の速度（大きなシーン）、カラーの見え方（`do_color_management=True` で表示と一致するか）、カメラビューでの三分割の位置、複数の3Dビューでの動作、ギズモ/オーバーレイとの重なり、日本語UI、`tools/mock_ui_check.py`。
 
+### 8.7 2026-10-12 の見直し（小坂さんの実機確認を受けて）
+実機確認の結果（予約タスク「ConceptFlow MVP開発」のチャット経由）: 「まだ商品として出せない」。BuildingTool はもう少し、Look Presets は今のレベルなら不要、Auto Variations は詰めれば使える、Read Views は保留。選ばれた方針: GitHub 側の版を土台に、**Look Presets は作り直して強化**、建物ツールは「クリックで壁を引く／階段・屋根・バルコニー／家具・小物／街並み」を追加、Variations は「比較して適用する操作」と「狭い部屋でも使えるカメラ」を詰める。Read Views は保留（コードは残す）。
+
+実機で分かった重要な事実（EEVEE Next 4.5.4）: **ワールドの Volume Scatter（霧）を入れると、密度 1e-4 以上で太陽光が消え画面がほぼ真っ黒になる**（点光源は効く）。**箱型のボリュームオブジェクト（密度 0.01、60m 立方）なら太陽も効く。**
+この日のコード変更（すべて実機未検証）:
+- `look_presets.py`: 霧をワールドから **箱のボリュームオブジェクト `CF_Haze_<KEY>`**（シーンの範囲＋カメラを含む、最大60m、`cf_look_role="haze"`、マテリアル `CF_Haze_<KEY>`）に変更。`_update_haze` が表示/密度/範囲を更新。旧版のワールド内霧ノード（`cf_fog`）は適用時に削除。`find_target` と Variations のレイキャストは look オブジェクト（霧の箱）を無視。`remove_look_data` は霧の箱とマテリアルも消す。**プリセットの中身（ライトの数値）は未調整** — 太陽が効くようになった分、明るさが変わるので実機で見て調整が必要。
+- `variations.py`: 狭い部屋用カメラ `find_camera_spot`（目標位置から壁までのレイキャストで空きを調べ、向きを回し・距離を詰め・仰角を下げて空いた位置を探す。疑似の部屋でのテストでは全案が部屋の中に収まった）。適用した案を強調表示、「適用を戻す」（Before Apply のノードへ）、列数スライダー、ボタンに連番。
+- `graybox.py`: `build_building` を関数に切り出し。屋根の形（フラット／片流れ／切妻、勾配、軒の出、妻壁）、バルコニー（手すり付き、上階のドア）。`new_custom_part`、`prism_mesh` を追加。
+- `graybox_tools.py`（新規）: **壁を描く**（モーダル。クリックで点、Shift=15°、Ctrl=スナップなし、C=閉じる、Enter/右クリック=完了、Backspace=戻す、Esc=取り消し、閉じたら床スラブ）、**小物13種**（テーブル・いす・ベッド・ソファ・棚・カウンター・ベンチ・樽・木箱・柵・街灯・木・車。BLOCKとして作るので差し替え可）、**階段の種類**（まっすぐ／L字／U字／らせん）、**街並み**（形の違う建物の列、両側、道路）。
+- 実機で要確認: 霧の箱で太陽が効くか・各ルックの見た目、壁を描く操作（座標・スナップ・プレビュー線）、屋根/バルコニーの位置、小物の見た目、街並みの配置（向き・道路）、らせん階段、狭い部屋でのカメラ、適用を戻す、日本語UI、`tools/mock_ui_check.py`。
+
 ## 9. 既知の問題・注意点（ハマりどころ）
 
 ### Blender API
@@ -309,6 +321,7 @@ Reference Board、Composition Solver、進化型生成、Change Detector、カ�
 
 - **v0.1**（小坂さん確認済み）: Graybox ＋ Branch Tree。
 - **v0.2**（2026-10-08、小坂さんへ報告済み・次へ進む確認待ちの状態で v0.3 着手の指示）: Look Presets 5種、Asset Swap。調整: GOLDEN HOUR が閉じた部屋で真っ黒になる問題を、`window` 面光源の追加で解決。HORROR / MOONLIGHT / NOIR を調整。`swap_clear` が孤立した差し替え後オブジェクトも掃除するよう修正。
+- 2026-10-12: 実機確認を受けた見直し（8.7）。霧を箱ボリュームに変更（太陽が消える問題の対策）、建物ツール拡張（壁を描く・屋根・バルコニー・小物・階段・街並み）、Variations の狭い部屋カメラと適用操作。Blender 実機では未検証。
 - 2026-10-09: リポジトリ構成を整理（`conceptflow-blender-repo/` の中身を直下へ）、`.gitignore` 追加。v0.3 の **Auto Variations** と基本的な **Compare & Apply** を実装（`variations.py`、`look_presets` のカスタムルック対応、UIパネル、翻訳）。Blender 実機では未検証（8.5 の確認リスト）。Read Views は未着手。
 - 2026-10-08: v0.3 の設計メモを作成（第8章）。GitHub 保存用の整理（このファイル、README、`tools/`、`.gitignore`、`CLAUDE.md` を追加。**`conceptflow/` 内のコードは変更していない**）。
 

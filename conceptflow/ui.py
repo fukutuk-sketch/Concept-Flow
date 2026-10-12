@@ -5,7 +5,7 @@
 import bpy
 from bpy.types import Panel
 
-from . import branch_tree, look_presets, read_views, variations
+from . import branch_tree, graybox_tools, look_presets, read_views, variations
 from .common import icon, iface
 
 PART_BUTTONS = (
@@ -63,6 +63,60 @@ class CONCEPTFLOW_PT_graybox(_ConceptFlowPanel, Panel):
                 box.prop(obj.conceptflow, "part")
         if not in_object_mode:
             layout.label(text="Switch to Object Mode to add parts", icon=icon('INFO'))
+
+
+class CONCEPTFLOW_PT_draw_walls(_ConceptFlowPanel, Panel):
+    bl_idname = "CONCEPTFLOW_PT_draw_walls"
+    bl_label = "Draw Walls"
+    bl_parent_id = "CONCEPTFLOW_PT_graybox"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 1
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('GREASEPENCIL'))
+
+    def draw(self, context):
+        layout = self.layout
+        s = context.scene.conceptflow.draw
+        col = layout.column()
+        col.enabled = context.mode == 'OBJECT'
+        col.scale_y = 1.4
+        col.operator("conceptflow.draw_walls", icon=icon('GREASEPENCIL'))
+        col = layout.column(align=True)
+        col.prop(s, "height")
+        col.prop(s, "thickness")
+        col.prop(s, "snap")
+        row = layout.row(align=True)
+        row.prop(s, "floor_slab")
+        sub = row.row(align=True)
+        sub.active = s.floor_slab
+        sub.prop(s, "slab", text="")
+        layout.label(text="Click points on the ground plane at the 3D cursor height", icon=icon('INFO'))
+
+
+class CONCEPTFLOW_PT_props(_ConceptFlowPanel, Panel):
+    bl_idname = "CONCEPTFLOW_PT_props"
+    bl_label = "Props & Street"
+    bl_parent_id = "CONCEPTFLOW_PT_graybox"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_order = 2
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('OUTLINER_OB_GROUP_INSTANCE'))
+
+    def draw(self, context):
+        layout = self.layout
+        in_object_mode = context.mode == 'OBJECT'
+        grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
+        grid.enabled = in_object_mode
+        for key in graybox_tools.PROP_ORDER:
+            op = grid.operator("conceptflow.add_prop", text=iface(graybox_tools.PROPS[key][0]),
+                               icon=icon(graybox_tools.PROP_ICONS.get(key, 'MESH_CUBE')), translate=False)
+            op.kind = key
+        col = layout.column(align=True)
+        col.enabled = in_object_mode
+        col.operator_menu_enum("conceptflow.add_stairs", "kind", text="Add Stairs...", icon=icon('IPO_CONSTANT'))
+        col.operator("conceptflow.build_street", icon=icon('HOME'))
 
 
 class CONCEPTFLOW_PT_asset_swap(_ConceptFlowPanel, Panel):
@@ -239,18 +293,24 @@ class CONCEPTFLOW_PT_variations(_ConceptFlowPanel, Panel):
         if len(var.items) == 0:
             return
 
-        grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=False, align=False)
+        layout.prop(var, "columns", slider=True)
+        scale = {1: 9.0, 2: 5.0, 3: 3.4, 4: 2.5}.get(var.columns, 5.0)
+        grid = layout.grid_flow(row_major=True, columns=var.columns, even_columns=True,
+                                even_rows=False, align=False)
         for n, item in enumerate(var.items):
             cell = grid.column(align=True)
             icon_id = variations.thumb_icon(item.image)
             if icon_id:
-                cell.template_icon(icon_value=icon_id, scale=5.0)
-            op = cell.operator("conceptflow.variations_apply", text=item.name, translate=False)
+                cell.template_icon(icon_value=icon_id, scale=scale)
+            op = cell.operator("conceptflow.variations_apply", text="{:02d} {}".format(n + 1, item.name),
+                               depress=(n == var.applied_index), translate=False)
             op.index = n
 
         row = layout.row(align=True)
-        row.operator("conceptflow.variations_base", icon=icon('LOOP_BACK'))
-        row.operator("conceptflow.variations_open_folder", text="", icon=icon('FILE_FOLDER'))
+        row.operator("conceptflow.variations_undo", icon=icon('LOOP_BACK'))
+        row.operator("conceptflow.variations_base", text="Base", icon=icon('HOME'))
+        row = layout.row(align=True)
+        row.operator("conceptflow.variations_open_folder", icon=icon('FILE_FOLDER'))
         row.operator("conceptflow.variations_clear", text="", icon=icon('X'))
 
 
@@ -288,6 +348,8 @@ class CONCEPTFLOW_PT_read_views(_ConceptFlowPanel, Panel):
 
 classes = (
     CONCEPTFLOW_PT_graybox,
+    CONCEPTFLOW_PT_draw_walls,
+    CONCEPTFLOW_PT_props,
     CONCEPTFLOW_PT_asset_swap,
     CONCEPTFLOW_PT_branch_tree,
     CONCEPTFLOW_PT_look_presets,

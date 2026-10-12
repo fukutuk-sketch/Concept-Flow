@@ -251,7 +251,7 @@ def _view_tuple(base):
 
 
 def _clear_distance(scene, context, target, direction, wanted):
-    """Shorten ``wanted`` so the camera does not end up behind a wall."""
+    """How far from ``target`` along ``direction`` is free, at most ``wanted``."""
     depsgraph = look_presets._depsgraph(scene, context)
     if depsgraph is None:
         return wanted
@@ -265,12 +265,49 @@ def _clear_distance(scene, context, target, direction, wanted):
         if not hit:
             return wanted
         src = ob.original if ob is not None else None
-        if src is not None and src.hide_render:
+        if src is not None and (src.hide_render or look_presets.is_look_object(src)):
             p = loc + direction * 1e-3
             travelled = (p - target).length
             continue
         return max((loc - target).length * 0.92, 0.2)
     return wanted
+
+
+# Camera search in small rooms: the wanted spot is tried first, then turned around the subject
+# and pulled in until the way from the subject to the camera is free.
+YAW_STEPS = (0, 20, 40, 60, 90, 130, 180)
+SCALE_STEPS = (1.0, 0.8, 0.65, 0.5)
+ELEV_STEPS = (0, -8, -16)
+GOOD_CLEARANCE = 0.9
+
+
+def find_camera_spot(scene, context, target, offset, yaw, elev, scale):
+    """Position of the camera (relative to nothing: world space) that is free of walls.
+
+    Returns the best spot found; the wanted spot itself when the room is big enough.
+    """
+    sign = 1.0 if yaw >= 0 else -1.0
+    turns = [0.0]
+    for step in YAW_STEPS[1:]:
+        turns += [sign * step, -sign * step]
+    best, best_score = None, -1.0
+    for de in ELEV_STEPS:
+        for sc in SCALE_STEPS:
+            for dy in turns:
+                pos = Vector(orbit_position(tuple(offset), yaw + dy, elev + de, scale * sc))
+                wanted = pos.length
+                if wanted < 1e-4:
+                    continue
+                direction = pos / wanted
+                clear = _clear_distance(scene, context, target, direction, wanted)
+                ratio = clear / wanted
+                # prefer free spots, then small turns, then keeping the distance
+                score = min(ratio, 1.0) - 0.0015 * abs(dy) - 0.05 * (1.0 - sc) - 0.01 * abs(de) / 8.0
+                if ratio >= GOOD_CLEARANCE:
+                    return target + direction * min(clear, wanted)
+                if score > best_score:
+                    best, best_score = target + direction * max(clear, 0.3), score
+    return best
 
 
 def _apply_camera(scene, context, base, cam_change):
@@ -281,13 +318,10 @@ def _apply_camera(scene, context, base, cam_change):
     scale = cam_change.get("dist", 1.0)
     if not base["ortho"] and "lens" in cam_change:
         scale *= lens / max(base["lens"], 1e-3)  # dolly so the subject keeps its size
-    pos = Vector(orbit_position(tuple(offset), cam_change.get("yaw", 0.0), cam_change.get("elev", 0.0), scale))
-    wanted = pos.length
-    if wanted < 1e-4:
+    loc = find_camera_spot(scene, context, target, offset, cam_change.get("yaw", 0.0),
+                           cam_change.get("elev", 0.0), scale)
+    if loc is None:
         return
-    direction = pos / wanted
-    wanted = _clear_distance(scene, context, target, direction, wanted)
-    loc = target + direction * wanted
     quat = (target - loc).to_track_quat('-Z', 'Y')
     cam.matrix_world = Matrix.LocRotScale(loc, quat, None)
     if not base["ortho"] and cam.data.library is None:
@@ -554,6 +588,8 @@ class CONCEPTFLOW_OT_variations_generate(Operator):
             item.name = spec["label"]
             item.spec = json.dumps(spec)
             item.image = path
+        var.applied_index = -1
+        var.before_uid = -1
         var.folder = self._folder
         var.base_state = self._packed
         var.base_view = json.dumps(self._base)
@@ -625,10 +661,14 @@ class CONCEPTFLOW_OT_variations_apply(Operator):
         if spec is None:
             self.report({'WARNING'}, rpt("This variation is no longer available"))
             return {'CANCELLED'}
-        branch_tree.checkpoint(scene, "Before Apply", 'APPLY')
+        before = branch_tree.checkpoint(scene, "Before Apply", 'APPLY')
+        if before < 0:
+            before = branch_tree.tree_of(scene).current_uid
         _restore_base(scene, var.base_state)
         apply_variation(scene, context, base, spec)
         branch_tree.save_state(scene, "Var {:02d}: {}".format(self.index + 1, spec["label"]), 'MANUAL')
+        var.applied_index = self.index
+        var.before_uid = before
         self.report({'INFO'}, rpt("Applied variation {label}").format(label=spec["label"]))
         return {'FINISHED'}
 
@@ -648,7 +688,37 @@ class CONCEPTFLOW_OT_variations_base(Operator):
         scene = context.scene
         branch_tree.checkpoint(scene, "Before Apply", 'APPLY')
         _restore_base(scene, scene.conceptflow.variations.base_state)
+        scene.conceptflow.variations.applied_index = -1
         self.report({'INFO'}, rpt("Back to the base scene"))
+        return {'FINISHED'}
+
+
+class CONCEPTFLOW_OT_variations_undo(Operator):
+    bl_idname = "conceptflow.variations_undo"
+    bl_label = "Undo Apply"
+    bl_description = "Go back to the scene as it was before the last variation was applied"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        scene = context.scene
+        if scene is None or _running:
+            return False
+        var = scene.conceptflow.variations
+        return var.applied_index >= 0 and var.before_uid >= 0
+
+    @guarded
+    def execute(self, context):
+        scene = context.scene
+        var = scene.conceptflow.variations
+        if branch_tree.restore_uid(scene, var.before_uid) is None:
+            var.applied_index = -1
+            var.before_uid = -1
+            self.report({'WARNING'}, rpt("The saved state is gone"))
+            return {'CANCELLED'}
+        var.applied_index = -1
+        var.before_uid = -1
+        self.report({'INFO'}, rpt("Back to the scene before Apply"))
         return {'FINISHED'}
 
 
@@ -669,6 +739,8 @@ class CONCEPTFLOW_OT_variations_clear(Operator):
         var.base_state = ""
         var.base_view = ""
         var.sheet = ""
+        var.applied_index = -1
+        var.before_uid = -1
         _free_previews()
         return {'FINISHED'}
 
@@ -694,6 +766,7 @@ classes = (
     CONCEPTFLOW_OT_variations_generate,
     CONCEPTFLOW_OT_variations_apply,
     CONCEPTFLOW_OT_variations_base,
+    CONCEPTFLOW_OT_variations_undo,
     CONCEPTFLOW_OT_variations_clear,
     CONCEPTFLOW_OT_variations_open_folder,
 )
