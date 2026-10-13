@@ -28,6 +28,15 @@ from .graybox import new_custom_part, new_part
 # Draw walls with the mouse
 # ---------------------------------------------------------------------------
 
+def opening_params(draw):
+    """Draw settings in the form graybox.wall_openings() expects."""
+    return SimpleNamespace(
+        wall_thickness=draw.thickness, window_spacing=draw.window_spacing, doors=draw.doors,
+        door_width=draw.door_width, door_height=draw.door_height, windows=draw.windows,
+        window_width=draw.window_width, window_height=draw.window_height, sill_height=draw.sill_height,
+        open_side='NONE', balcony=False)
+
+
 def snap_value(value, step):
     return round(value / step) * step if step > 0.0 else value
 
@@ -127,7 +136,7 @@ class CONCEPTFLOW_OT_draw_walls(Operator):
         self._root.empty_display_type = 'PLAIN_AXES'
         self._root.conceptflow.building = self._building
         self._coll.objects.link(self._root)
-        self._root.location = (self._points[0].x, self._points[0].y, self._z)
+        self._root.matrix_world = Matrix.Translation((self._points[0].x, self._points[0].y, self._z))
 
     def _add_wall(self, context, a, b):
         length = (b - a).length
@@ -144,15 +153,49 @@ class CONCEPTFLOW_OT_draw_walls(Operator):
     def _add_floor(self, context):
         s = self._settings
         pts = self._points
-        if len(pts) < 3:
+        if len(pts) < 3 or not (s.floor_slab or s.ceiling):
             return
-        mesh = floor_polygon_mesh("CF_Floor", pts, s.slab)
         xs, ys = [p.x for p in pts], [p.y for p in pts]
         size = (max(xs) - min(xs), max(ys) - min(ys), s.slab)
-        floor = new_custom_part('FLOOR', mesh, size, Matrix.Translation((0.0, 0.0, self._z)),
-                                self._coll, slots=['FLOOR'], parent=self._root,
-                                building=self._building, name="CF_Floor")
-        self._extra.append(floor)
+        flat = []
+        for p in pts:
+            flat += [p.x, p.y]
+        for enabled, name, z in ((s.floor_slab, "CF_Floor", self._z),
+                                 (s.ceiling, "CF_Ceiling", self._z + s.height + s.slab)):
+            if not enabled:
+                continue
+            mesh = floor_polygon_mesh(name, pts, s.slab)
+            ob = new_custom_part('FLOOR', mesh, size, Matrix.Translation((0.0, 0.0, z)), self._coll,
+                                 slots=['FLOOR'], parent=self._root, building=self._building, name=name)
+            ob["cf_poly"] = flat
+            self._extra.append(ob)
+
+    def _add_openings(self, context):
+        """Windows along the walls and a door on the longest wall, from the style settings."""
+        s = self._settings
+        p = opening_params(s)
+        if not self._walls:
+            return
+        longest = max(self._walls, key=lambda w: w.conceptflow.size[0])
+        result = []
+        for wall in self._walls:
+            length = wall.conceptflow.size[0] - s.thickness
+            if length < 1.0:
+                result.append(wall)
+                continue
+            side = 'FRONT' if wall is longest else 'RIGHT'
+            openings = graybox.wall_openings(p, wall.matrix_world, length, s.height, 0, side,
+                                             wall.users_collection[0], self._building)
+            for op in openings:
+                world = op.matrix_world.copy()
+                op.parent = self._root
+                op.matrix_world = world
+            if openings:
+                _cut, pieces, _skipped = graybox.cut_openings([wall], openings)
+                result += pieces
+            else:
+                result.append(wall)
+        self._walls = result
 
     def _remove_all(self):
         for ob in list(self._walls) + list(self._extra):
@@ -211,6 +254,8 @@ class CONCEPTFLOW_OT_draw_walls(Operator):
         if not self._walls:
             self._remove_all()
             return {'CANCELLED'}
+        if self._settings.auto_openings:
+            self._add_openings(context)
         common.select_only(context, [self._root], self._root)
         self.report({'INFO'}, rpt("Drew {count} walls").format(count=len(self._walls)))
         return {'FINISHED'}
@@ -267,8 +312,7 @@ class CONCEPTFLOW_OT_draw_walls(Operator):
                 wall = self._add_wall(context, self._points[-1], self._points[0])
                 if wall is not None:
                     self._walls.append(wall)
-                if self._settings.floor_slab:
-                    self._add_floor(context)
+                self._add_floor(context)
                 return self._finish(context, False)
             return {'RUNNING_MODAL'}
         if event.type == 'MOUSEMOVE':
@@ -286,8 +330,7 @@ class CONCEPTFLOW_OT_draw_walls(Operator):
                 wall = self._add_wall(context, self._points[-1], self._points[0])
                 if wall is not None:
                     self._walls.append(wall)
-                if self._settings.floor_slab:
-                    self._add_floor(context)
+                self._add_floor(context)
                 return self._finish(context, False)
             if self._points and (point - self._points[-1]).length < 0.05:
                 return {'RUNNING_MODAL'}
@@ -406,6 +449,13 @@ def _bench(bm, sx, sy, sz):
     _box(bm, 0.0, sy / 2.0 - 0.03, seat_h + 0.06, sx, 0.05, sz - seat_h - 0.06)
 
 
+def _fountain(bm, sx, sy, sz):
+    r = min(sx, sy) / 2.0
+    _cylinder(bm, 0.0, 0.0, 0.0, r, sz * 0.35, 24)
+    _cylinder(bm, 0.0, 0.0, sz * 0.35, r * 0.2, sz * 0.4, 12)
+    _cylinder(bm, 0.0, 0.0, sz * 0.75, r * 0.5, sz * 0.12, 20, radius2=r * 0.6)
+
+
 def _car(bm, sx, sy, sz):
     wheel = sz * 0.28
     _box(bm, 0.0, 0.0, wheel * 0.6, sx, sy, sz * 0.42)
@@ -433,14 +483,15 @@ PROPS = {
     'TREE': ("Tree", (2.0, 2.0, 4.5), _tree, "A simple tree"),
     'FENCE': ("Fence", (2.0, 0.1, 1.2), _fence, "A fence section"),
     'CAR': ("Car", (4.2, 1.8, 1.5), _car, "A car block. The front is on the +X side"),
+    'FOUNTAIN': ("Fountain", (3.0, 3.0, 1.6), _fountain, "A round fountain for a plaza"),
 }
 PROP_ORDER = ('TABLE', 'CHAIR', 'BED', 'SOFA', 'SHELF', 'COUNTER', 'BENCH', 'BARREL', 'CRATE',
-              'FENCE', 'LAMP_POST', 'TREE', 'CAR')
+              'FENCE', 'LAMP_POST', 'TREE', 'FOUNTAIN', 'CAR')
 PROP_ICONS = {
     'TABLE': 'MESH_PLANE', 'CHAIR': 'MESH_CUBE', 'BED': 'MESH_PLANE', 'SOFA': 'MESH_CUBE',
     'SHELF': 'MESH_GRID', 'COUNTER': 'MESH_CUBE', 'BENCH': 'MESH_PLANE', 'BARREL': 'MESH_CYLINDER',
     'CRATE': 'MESH_CUBE', 'FENCE': 'MESH_GRID', 'LAMP_POST': 'LIGHT_POINT', 'TREE': 'MESH_CONE',
-    'CAR': 'AUTO',
+    'CAR': 'AUTO', 'FOUNTAIN': 'MESH_CIRCLE',
 }
 PROP_ITEMS = [(key, PROPS[key][0], PROPS[key][3]) for key in PROP_ORDER]
 
@@ -602,17 +653,27 @@ class CONCEPTFLOW_OT_add_stairs(Operator):
 # Streets: rows of buildings
 # ---------------------------------------------------------------------------
 
+STREET_LAYOUTS = [
+    ('STREET', "Street", "Two rows of buildings along a road"),
+    ('ALLEY', "Alley", "A narrow lane between tall buildings that sit at uneven depths"),
+    ('PLAZA', "Plaza", "A square with buildings on all four sides facing a fountain"),
+]
+
+
 class CONCEPTFLOW_OT_build_street(Operator):
     bl_idname = "conceptflow.build_street"
     bl_label = "Build Street"
-    bl_description = ("Build a row of different buildings with a road in front, at the 3D cursor. "
-                      "Every building keeps its own parts")
+    bl_description = ("Build a street, alley or plaza of different buildings at the 3D cursor. "
+                      "Heights and widths are random. Every building keeps its own parts")
     bl_options = {'REGISTER', 'UNDO'}
 
+    layout: EnumProperty(name="Layout", items=STREET_LAYOUTS, default='STREET')
     count: IntProperty(name="Buildings", description="Buildings in each row", min=1, max=30, default=5)
     both_sides: BoolProperty(name="Both Sides", description="Add a second row across the road", default=True)
     road: BoolProperty(name="Road", description="Add a road slab between the rows", default=True)
     road_width: FloatProperty(name="Road Width", min=2.0, soft_max=30.0, default=8.0, unit='LENGTH')
+    alley_width: FloatProperty(name="Alley Width", min=1.2, soft_max=10.0, default=3.0, unit='LENGTH')
+    plaza_size: FloatProperty(name="Plaza Size", min=8.0, soft_max=80.0, default=20.0, unit='LENGTH')
     min_width: FloatProperty(name="Min Width", min=2.0, soft_max=30.0, default=5.0, unit='LENGTH')
     max_width: FloatProperty(name="Max Width", min=2.0, soft_max=40.0, default=9.0, unit='LENGTH')
     depth: FloatProperty(name="Depth", min=3.0, soft_max=40.0, default=8.0, unit='LENGTH')
@@ -633,8 +694,10 @@ class CONCEPTFLOW_OT_build_street(Operator):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
+        layout.prop(self, "layout")
         col = layout.column(align=True)
-        col.prop(self, "count")
+        if self.layout != 'PLAZA':
+            col.prop(self, "count")
         col.prop(self, "seed")
         col = layout.column(align=True)
         col.prop(self, "min_width")
@@ -644,59 +707,121 @@ class CONCEPTFLOW_OT_build_street(Operator):
         col.prop(self, "min_floors")
         col.prop(self, "max_floors")
         layout.prop(self, "gap")
-        layout.prop(self, "both_sides")
-        row = layout.row()
-        row.prop(self, "road")
-        sub = row.row()
-        sub.active = self.road
-        sub.prop(self, "road_width", text="")
+        if self.layout == 'STREET':
+            layout.prop(self, "both_sides")
+            row = layout.row()
+            row.prop(self, "road")
+            sub = row.row()
+            sub.active = self.road
+            sub.prop(self, "road_width", text="")
+        elif self.layout == 'ALLEY':
+            layout.prop(self, "alley_width")
+        else:
+            layout.prop(self, "plaza_size")
 
-    def _params(self, rng, width, floors):
-        roof_type = rng.choice(('FLAT', 'GABLE', 'GABLE', 'SHED'))
-        return SimpleNamespace(
-            width=width, depth=self.depth, floors=floors, floor_height=3.2, wall_thickness=0.2,
+    def _params(self, rng, width, depth, floors, style):
+        roof_type = rng.choice(('FLAT', 'GABLE', 'GABLE', 'SHED', 'HIP'))
+        p = SimpleNamespace(
+            width=width, depth=depth, floors=floors, floor_height=3.2, wall_thickness=0.2,
             slab_thickness=0.15, doors=1, door_width=1.0, door_height=2.1, windows=True,
             window_spacing=rng.uniform(2.2, 3.4), window_width=rng.uniform(1.0, 1.4), window_height=1.3,
             sill_height=0.9, roof=True, roof_type=roof_type, roof_pitch=rng.uniform(22.0, 40.0),
             roof_overhang=0.3, balcony=floors >= 2 and rng.random() < 0.4, balcony_depth=1.2,
             pillars=False, open_side='NONE')
+        if style.style != 'NONE':
+            p.floor_height = max(1.5, style.height + style.slab)
+            p.wall_thickness, p.slab_thickness = style.thickness, style.slab
+            p.doors, p.door_width, p.door_height = style.doors, style.door_width, style.door_height
+            p.windows, p.window_spacing = style.windows, style.window_spacing
+            p.window_width, p.window_height, p.sill_height = style.window_width, style.window_height, style.sill_height
+            p.roof_type, p.roof_pitch, p.roof_overhang = style.roof_type, style.roof_pitch, style.roof_overhang
+        return p
 
-    def _row(self, scene, street, base, rng, flip):
-        """Build one row. Returns its length."""
+    def _row(self, scene, street, base, rng, to_matrix, style, limit=None, floors_bonus=0, vary_depth=False):
+        """Build one row. ``to_matrix(x_centre, width, depth)`` places a building. Returns its length."""
+        lo, hi = sorted((self.min_width, self.max_width))
         x = 0.0
-        for _ in range(self.count):
-            lo, hi = sorted((self.min_width, self.max_width))
+        built = 0
+        while True:
             width = round(rng.uniform(lo, hi) * 2.0) / 2.0
+            if limit is None:
+                if built >= self.count:
+                    break
+            elif x + width > limit + 0.01:
+                width = limit - x
+                if width < lo * 0.6:
+                    break
             floors = rng.randint(min(self.min_floors, self.max_floors), max(self.min_floors, self.max_floors))
-            p = self._params(rng, width, floors)
-            local = Matrix.Translation((x + width / 2.0, 0.0, 0.0))
-            if flip:
-                local = Matrix.Translation((x + width / 2.0, -self.depth - self.road_width * (1 if self.road else 0), 0.0)) \
-                    @ Matrix.Rotation(math.pi, 4, 'Z')
-            graybox.build_building(scene, p, base @ local, parent=street)
-            x += width + self.gap
-        return x - self.gap
+            floors += floors_bonus
+            depth = self.depth * (rng.uniform(0.6, 1.0) if vary_depth else 1.0)
+            p = self._params(rng, width, depth, floors, style)
+            graybox.build_building(scene, p, base @ to_matrix(x + width / 2.0, width, depth), parent=street)
+            x += width + (self.gap if not vary_depth else rng.uniform(0.0, 0.4))
+            built += 1
+        return x - (self.gap if not vary_depth else 0.0)
 
     @guarded
     def execute(self, context):
         scene = context.scene
+        style = scene.conceptflow.draw
         rng = random.Random(self.seed)
         base = graybox._cursor_matrix(scene)
-        street = bpy.data.objects.new("CF_Street", None)
+        coll = graybox.graybox_collection(scene)
+        street = bpy.data.objects.new("CF_" + self.layout.title(), None)
         street.empty_display_type = 'PLAIN_AXES'
         street.empty_display_size = 2.0
-        graybox.graybox_collection(scene).objects.link(street)
+        coll.objects.link(street)
         street.matrix_world = base
-        length = self._row(scene, street, base, rng, False)
-        if self.both_sides:
-            length = max(length, self._row(scene, street, base, rng, True))
-        if self.road:
-            new_part('FLOOR', (length + 2.0, self.road_width, 0.2),
-                            base @ Matrix.Translation((length / 2.0, -self.depth / 2.0 - self.road_width / 2.0, 0.0)),
-                            graybox.graybox_collection(scene), parent=street, name="CF_Road")
+        D = self.depth
+        total = 0
+        if self.layout == 'PLAZA':
+            S = self.plaza_size
+            sides = (
+                (lambda xc, w, d: Matrix.Translation((xc - S / 2.0, -S / 2.0 - d / 2.0, 0.0)) @ Matrix.Rotation(math.pi, 4, 'Z')),
+                (lambda xc, w, d: Matrix.Translation((xc - S / 2.0, S / 2.0 + d / 2.0, 0.0))),
+                (lambda xc, w, d: Matrix.Translation((-S / 2.0 - d / 2.0, xc - S / 2.0, 0.0)) @ Matrix.Rotation(math.pi / 2.0, 4, 'Z')),
+                (lambda xc, w, d: Matrix.Translation((S / 2.0 + d / 2.0, xc - S / 2.0, 0.0)) @ Matrix.Rotation(-math.pi / 2.0, 4, 'Z')),
+            )
+            for to_matrix in sides:
+                self._row(scene, street, base, rng, to_matrix, style, limit=S)
+            new_part('FLOOR', (S, S, 0.12), base @ Matrix.Translation((0.0, 0.0, 0.0)), coll,
+                     parent=street, name="CF_Plaza")
+            size = PROPS['FOUNTAIN'][1]
+            mesh = prop_mesh('FOUNTAIN', size, "CF_Fountain")
+            fountain = new_custom_part('BLOCK', mesh, size, base, coll, slots=['BLOCK'], parent=street,
+                                       name="CF_Fountain")
+            fountain["cf_prop"] = 'FOUNTAIN'
+            for sx in (-1.0, 1.0):
+                for sy in (-1.0, 1.0):
+                    lsize = PROPS['LAMP_POST'][1]
+                    lamp = new_custom_part('BLOCK', prop_mesh('LAMP_POST', lsize, "CF_LampPost"), lsize,
+                                           base @ Matrix.Translation((sx * (S / 2.0 - 0.6), sy * (S / 2.0 - 0.6), 0.0)),
+                                           coll, slots=['BLOCK'], parent=street, name="CF_LampPost")
+                    lamp["cf_prop"] = 'LAMP_POST'
+            total = len(street.children_recursive)
+        else:
+            if self.layout == 'ALLEY':
+                rw, both, vary, bonus = self.alley_width, True, True, 1
+            else:
+                rw, both, vary, bonus = (self.road_width if self.road else 0.0), self.both_sides, False, 0
+
+            def front(xc, w, d):
+                return Matrix.Translation((xc, -D / 2.0 + d / 2.0, 0.0))
+
+            def back(xc, w, d):
+                return Matrix.Translation((xc, -D / 2.0 - rw - d / 2.0, 0.0)) @ Matrix.Rotation(math.pi, 4, 'Z')
+
+            length = self._row(scene, street, base, rng, front, style, floors_bonus=bonus, vary_depth=vary)
+            if both:
+                length = max(length, self._row(scene, street, base, rng, back, style, floors_bonus=bonus,
+                                               vary_depth=vary))
+            if rw > 0.0:
+                new_part('FLOOR', (length + 2.0, rw, 0.2),
+                         base @ Matrix.Translation((length / 2.0, -D / 2.0 - rw / 2.0, 0.0)), coll,
+                         parent=street, name="CF_Road")
+            total = self.count * (2 if both else 1)
         common.select_only(context, [street], street)
-        self.report({'INFO'}, rpt("Built a street with {count} buildings").format(
-            count=self.count * (2 if self.both_sides else 1)))
+        self.report({'INFO'}, rpt("Built a street with {count} buildings").format(count=total))
         return {'FINISHED'}
 
 

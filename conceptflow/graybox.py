@@ -14,6 +14,7 @@ from mathutils import Euler, Matrix, Vector
 
 from . import common
 from .common import guarded, rpt, tip
+from . import props
 from .props import PART_ITEMS
 
 ADDABLE_PARTS = [item for item in PART_ITEMS if item[0] != 'NONE']
@@ -51,6 +52,7 @@ MAT_TONES = {
     'GLASS': ((0.16, 0.20, 0.24), 0.08),
     'FLOOR': ((0.46, 0.46, 0.46), 0.90),
     'BLOCK': ((0.68, 0.68, 0.68), 0.85),
+    'FIGURE': ((0.92, 0.46, 0.14), 0.7),
 }
 
 FRAME_GAP = 0.02  # door/window frames stick out of the wall by this much on each side
@@ -225,6 +227,59 @@ def prism_mesh(name, profile, thickness):
     return common.mesh_from_bm(name, bm)
 
 
+def hip_roof_mesh(name, span_x, span_y, pitch_degrees):
+    """A solid hip roof over a rectangle (``span_x`` by ``span_y``). The base is at z = 0.
+
+    The ridge runs along the longer side. Returns (mesh, height).
+    """
+    hx, hy = span_x / 2.0, span_y / 2.0
+    short = min(hx, hy)
+    height = math.tan(math.radians(min(max(pitch_degrees, 5.0), 70.0))) * short
+    bm = bmesh.new()
+    base = [bm.verts.new(c) for c in ((-hx, -hy, 0.0), (hx, -hy, 0.0), (hx, hy, 0.0), (-hx, hy, 0.0))]
+    if hx >= hy:
+        ridge = [bm.verts.new((-(hx - short), 0.0, height)), bm.verts.new(((hx - short), 0.0, height))]
+        faces = [(base[0], base[1], ridge[1], ridge[0]), (base[2], base[3], ridge[0], ridge[1]),
+                 (base[1], base[2], ridge[1]), (base[3], base[0], ridge[0])]
+    else:
+        ridge = [bm.verts.new((0.0, -(hy - short), height)), bm.verts.new((0.0, (hy - short), height))]
+        faces = [(base[1], base[2], ridge[1], ridge[0]), (base[3], base[0], ridge[0], ridge[1]),
+                 (base[0], base[1], ridge[0]), (base[2], base[3], ridge[1])]
+    for f in faces:
+        try:
+            bm.faces.new(f)
+        except ValueError:
+            pass
+    bm.faces.new(list(reversed(base)))
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return common.mesh_from_bm(name, bm), height
+
+
+def dome_mesh(name, rx, ry, height, segments=24, rings=8):
+    """A solid half ellipsoid with its flat base at z = 0."""
+    bm = bmesh.new()
+    top = None
+    ring_verts = []
+    for i in range(rings):
+        phi = (math.pi / 2.0) * i / rings
+        ring = [bm.verts.new((math.cos(phi) * rx * math.cos(2 * math.pi * k / segments),
+                              math.cos(phi) * ry * math.sin(2 * math.pi * k / segments),
+                              math.sin(phi) * height)) for k in range(segments)]
+        ring_verts.append(ring)
+    top = bm.verts.new((0.0, 0.0, height))
+    for i in range(rings - 1):
+        for k in range(segments):
+            j = (k + 1) % segments
+            bm.faces.new((ring_verts[i][k], ring_verts[i][j], ring_verts[i + 1][j], ring_verts[i + 1][k]))
+    for k in range(segments):
+        j = (k + 1) % segments
+        bm.faces.new((ring_verts[-1][k], ring_verts[-1][j], top))
+    bm.faces.new(list(reversed(ring_verts[0])))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return common.mesh_from_bm(name, bm)
+
+
 def is_part(obj, *parts):
     return obj is not None and obj.type == 'MESH' and obj.conceptflow.part in parts
 
@@ -367,11 +422,7 @@ def merge_walls(walls, reference):
 # Operators
 # ---------------------------------------------------------------------------
 
-ROOF_ITEMS = [
-    ('FLAT', "Flat", "A flat roof slab"),
-    ('SHED', "Shed", "One sloping roof surface"),
-    ('GABLE', "Gable", "Two roof surfaces meeting at a ridge, with triangular ends"),
-]
+ROOF_ITEMS = props.ROOF_ITEMS
 
 
 def wall_openings(p, wall_matrix, length, wall_height, level, side, collection, building):
@@ -436,6 +487,22 @@ def build_roof(coll, building, W, D, top, st, kind, pitch, overhang):
     if kind == 'FLAT':
         new_part('FLOOR', (W, D, st), Matrix.Translation((0.0, 0.0, top + st)), coll,
                  building=building, name="CF_Roof")
+        return
+    if kind == 'HIP':
+        ov = max(overhang, 0.0)
+        mesh, height = hip_roof_mesh("CF_Roof", W + 2 * ov, D + 2 * ov, pitch)
+        drop = math.tan(math.radians(min(max(pitch, 5.0), 70.0))) * ov
+        new_custom_part('FLOOR', mesh, (W + 2 * ov, D + 2 * ov, height),
+                        Matrix.Translation((0.0, 0.0, top - drop)), coll, slots=['FLOOR'],
+                        building=building, name="CF_Roof")
+        return
+    if kind == 'DOME':
+        ov = max(overhang, 0.0)
+        rx, ry = W / 2.0 + ov, D / 2.0 + ov
+        mesh = dome_mesh("CF_Roof", rx, ry, min(rx, ry) * 0.9)
+        new_custom_part('FLOOR', mesh, (2 * rx, 2 * ry, min(rx, ry) * 0.9),
+                        Matrix.Translation((0.0, 0.0, top)), coll, slots=['FLOOR'],
+                        building=building, name="CF_Roof")
         return
     along_x = W >= D
     ridge_len, span = (W, D) if along_x else (D, W)
@@ -714,6 +781,22 @@ class CONCEPTFLOW_OT_build_building(Operator):
         return context.scene is not None and context.mode == 'OBJECT'
 
     def invoke(self, context, event):
+        style = context.scene.conceptflow.draw
+        if style.style != 'NONE':
+            self.floor_height = max(1.5, style.height + style.slab)
+            self.wall_thickness = style.thickness
+            self.slab_thickness = style.slab
+            self.doors = style.doors
+            self.door_width = style.door_width
+            self.door_height = style.door_height
+            self.windows = style.windows
+            self.window_spacing = style.window_spacing
+            self.window_width = style.window_width
+            self.window_height = style.window_height
+            self.sill_height = style.sill_height
+            self.roof_type = style.roof_type
+            self.roof_pitch = style.roof_pitch
+            self.roof_overhang = style.roof_overhang
         return context.window_manager.invoke_props_dialog(self, width=340)
 
     def draw(self, context):

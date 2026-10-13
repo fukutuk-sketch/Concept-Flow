@@ -5,7 +5,7 @@
 import bpy
 from bpy.types import Panel
 
-from . import branch_tree, graybox_tools, look_presets, photo_match, read_views, shot_maker, variations
+from . import branch_tree, building_extras, graybox_tools, look_presets, photo_match, read_views, shot_maker, variations
 from .common import icon, iface
 
 PART_BUTTONS = (
@@ -65,11 +65,14 @@ class CONCEPTFLOW_PT_graybox(_ConceptFlowPanel, Panel):
             layout.label(text="Switch to Object Mode to add parts", icon=icon('INFO'))
 
 
-class CONCEPTFLOW_PT_draw_walls(_ConceptFlowPanel, Panel):
-    bl_idname = "CONCEPTFLOW_PT_draw_walls"
-    bl_label = "Draw Walls"
+class _GrayboxChild(_ConceptFlowPanel):
     bl_parent_id = "CONCEPTFLOW_PT_graybox"
     bl_options = {'DEFAULT_CLOSED'}
+
+
+class CONCEPTFLOW_PT_draw_walls(_GrayboxChild, Panel):
+    bl_idname = "CONCEPTFLOW_PT_draw_walls"
+    bl_label = "Draw Walls"
     bl_order = 1
 
     def draw_header(self, context):
@@ -78,6 +81,7 @@ class CONCEPTFLOW_PT_draw_walls(_ConceptFlowPanel, Panel):
     def draw(self, context):
         layout = self.layout
         s = context.scene.conceptflow.draw
+        layout.prop(s, "style", text="")
         col = layout.column()
         col.enabled = context.mode == 'OBJECT'
         col.scale_y = 1.4
@@ -87,25 +91,107 @@ class CONCEPTFLOW_PT_draw_walls(_ConceptFlowPanel, Panel):
         col.prop(s, "thickness")
         col.prop(s, "snap")
         row = layout.row(align=True)
-        row.prop(s, "floor_slab")
+        row.prop(s, "floor_slab", text="Floor")
+        row.prop(s, "ceiling", text="Ceiling")
         sub = row.row(align=True)
-        sub.active = s.floor_slab
+        sub.active = s.floor_slab or s.ceiling
         sub.prop(s, "slab", text="")
         layout.label(text="Click points on the ground plane at the 3D cursor height", icon=icon('INFO'))
 
 
-class CONCEPTFLOW_PT_props(_ConceptFlowPanel, Panel):
+class CONCEPTFLOW_PT_openings(_GrayboxChild, Panel):
+    bl_idname = "CONCEPTFLOW_PT_openings"
+    bl_label = "Doors & Windows"
+    bl_order = 2
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('MOD_LATTICE'))
+
+    def draw(self, context):
+        layout = self.layout
+        s = context.scene.conceptflow.draw
+        extras = context.scene.conceptflow.extras
+        row = layout.row(align=True)
+        row.prop(extras, "opening_kind", expand=True)
+        col = layout.column()
+        col.enabled = context.mode == 'OBJECT'
+        col.scale_y = 1.3
+        col.operator("conceptflow.click_opening", icon=icon('RESTRICT_SELECT_OFF'))
+        layout.prop(s, "auto_openings")
+        col = layout.column(align=True)
+        col.active = s.auto_openings or True
+        col.prop(s, "windows")
+        sub = col.column(align=True)
+        sub.active = s.windows
+        sub.prop(s, "window_spacing")
+        sub.prop(s, "window_width")
+        sub.prop(s, "window_height")
+        sub.prop(s, "sill_height")
+        col = layout.column(align=True)
+        col.prop(s, "doors")
+        sub = col.column(align=True)
+        sub.active = s.doors > 0
+        sub.prop(s, "door_width")
+        sub.prop(s, "door_height")
+
+
+class CONCEPTFLOW_PT_underlay(_GrayboxChild, Panel):
+    bl_idname = "CONCEPTFLOW_PT_underlay"
+    bl_label = "Trace Underlay"
+    bl_order = 3
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('IMAGE_REFERENCE'))
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        extras = scene.conceptflow.extras
+        has = building_extras.underlay_object(scene) is not None
+        layout.operator("conceptflow.underlay_load", icon=icon('FILE_IMAGE'))
+        col = layout.column(align=True)
+        col.enabled = has
+        col.prop(extras, "underlay_size")
+        col.prop(extras, "underlay_opacity", slider=True)
+        row = layout.row(align=True)
+        row.enabled = has
+        row.prop(extras, "known_length")
+        layout.operator("conceptflow.underlay_scale", icon=icon('ARROW_LEFTRIGHT'))
+        layout.operator("conceptflow.underlay_remove", icon=icon('X'))
+        layout.label(text="Load the image, set its size, then trace with Draw Walls", icon=icon('INFO'))
+
+
+class CONCEPTFLOW_PT_ruin(_GrayboxChild, Panel):
+    bl_idname = "CONCEPTFLOW_PT_ruin"
+    bl_label = "Ruin"
+    bl_order = 4
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('MOD_EXPLODE'))
+
+    def draw(self, context):
+        layout = self.layout
+        extras = context.scene.conceptflow.extras
+        layout.prop(extras, "ruin_amount", slider=True)
+        layout.prop(extras, "ruin_seed")
+        col = layout.column()
+        col.enabled = context.mode == 'OBJECT'
+        col.scale_y = 1.3
+        col.operator("conceptflow.ruin", icon=icon('MOD_EXPLODE'))
+        layout.label(text="Breaks the selected parts. Undo with Ctrl+Z", icon=icon('INFO'))
+
+
+class CONCEPTFLOW_PT_props(_GrayboxChild, Panel):
     bl_idname = "CONCEPTFLOW_PT_props"
     bl_label = "Props & Street"
-    bl_parent_id = "CONCEPTFLOW_PT_graybox"
-    bl_options = {'DEFAULT_CLOSED'}
-    bl_order = 2
+    bl_order = 5
 
     def draw_header(self, context):
         self.layout.label(text="", icon=icon('OUTLINER_OB_GROUP_INSTANCE'))
 
     def draw(self, context):
         layout = self.layout
+        extras = context.scene.conceptflow.extras
         in_object_mode = context.mode == 'OBJECT'
         grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, even_rows=True, align=True)
         grid.enabled = in_object_mode
@@ -113,9 +199,34 @@ class CONCEPTFLOW_PT_props(_ConceptFlowPanel, Panel):
             op = grid.operator("conceptflow.add_prop", text=iface(graybox_tools.PROPS[key][0]),
                                icon=icon(graybox_tools.PROP_ICONS.get(key, 'MESH_CUBE')), translate=False)
             op.kind = key
+
+        box = layout.box()
+        box.label(text="Furnish Rooms")
+        box.prop(extras, "scatter_kit", text="")
+        box.prop(extras, "scatter_density", slider=True)
+        box.prop(extras, "scatter_seed")
+        col = box.column()
+        col.enabled = in_object_mode
+        col.operator("conceptflow.scatter_props", icon=icon('PARTICLES'))
+
+        box = layout.box()
+        box.label(text="Scale Figure")
+        row = box.row(align=True)
+        row.enabled = in_object_mode
+        for kind, label in (('ADULT', "Adult"), ('CHILD', "Child"), ('TALL', "Tall")):
+            op = row.operator("conceptflow.add_figure", text=iface(label), translate=False)
+            op.kind = kind
+        row = box.row(align=True)
+        row.enabled = in_object_mode
+        row.prop(extras, "figure_height", text="")
+        op = row.operator("conceptflow.add_figure", text="Add", icon=icon('ADD'))
+        op.kind = 'CUSTOM'
+
         col = layout.column(align=True)
         col.enabled = in_object_mode
         col.operator_menu_enum("conceptflow.add_stairs", "kind", text="Add Stairs...", icon=icon('IPO_CONSTANT'))
+        col.operator_menu_enum("conceptflow.add_feature", "kind", text="Add Canopy, Arch, Roof...",
+                               icon=icon('MESH_CONE'))
         col.operator("conceptflow.build_street", icon=icon('HOME'))
 
 
@@ -449,6 +560,9 @@ class CONCEPTFLOW_PT_photo_match(_ConceptFlowPanel, Panel):
 classes = (
     CONCEPTFLOW_PT_graybox,
     CONCEPTFLOW_PT_draw_walls,
+    CONCEPTFLOW_PT_openings,
+    CONCEPTFLOW_PT_underlay,
+    CONCEPTFLOW_PT_ruin,
     CONCEPTFLOW_PT_props,
     CONCEPTFLOW_PT_asset_swap,
     CONCEPTFLOW_PT_branch_tree,

@@ -254,6 +254,23 @@ def _set_visible(ob, visible, view_layer):
         pass
 
 
+def _plain(text):
+    return "".join(ch for ch in text.lower() if ch.isalnum())
+
+
+def matching_candidates(cands, part_ob):
+    """Candidates whose name says they are this prop (a "Table" asset for a table block).
+
+    Only props made by the ConceptFlow prop kit (``cf_prop``) are matched by name.
+    """
+    kind = part_ob.get("cf_prop")
+    if not kind:
+        return []
+    key = _plain(str(kind))
+    alt = {"LAMPPOST": "lamp", "COUNTER": "counter"}.get(key.upper(), key)
+    return [c for c in cands if key in _plain(c.ref.name) or alt in _plain(c.ref.name)]
+
+
 def swap_parts(scene, parts):
     """Swap ``parts`` for assets. Returns (swapped, parts without assets, instances)."""
     swap = scene.conceptflow.swap
@@ -272,7 +289,8 @@ def swap_parts(scene, parts):
             continue
         slot = slot_of(scene, part)
         rng = random.Random(zlib.crc32("{}:{}".format(swap.seed, part_ob.name).encode("utf-8")))
-        cand = cands[rng.randrange(len(cands))]
+        pool = matching_candidates(cands, part_ob) or cands
+        cand = pool[rng.randrange(len(pool))]
         p_mn, p_mx = _bounds([Vector(c) for c in part_ob.bound_box])
         for matrix in fit_matrices(p_mn, p_mx, cand, fit_mode(slot, part), int(slot.rotate), part):
             root, made = _instantiate(cand, coll)

@@ -33,6 +33,25 @@ PIECE_ITEMS = [
     ('SILL', "Sill", "Wall section below an opening"),
 ]
 
+ROOF_ITEMS = [
+    ('FLAT', "Flat", "A flat roof slab"),
+    ('SHED', "Shed", "One sloping roof surface"),
+    ('GABLE', "Gable", "Two roof surfaces meeting at a ridge, with triangular ends"),
+    ('HIP', "Hip", "Four sloping roof surfaces meeting at a ridge or a point"),
+    ('DOME', "Dome", "A rounded dome"),
+]
+
+STYLE_ITEMS = [
+    ('NONE', "Custom", "Use the sizes below as they are"),
+    ('MODERN', "Modern Room", "Plain modern rooms: 2.7 m ceilings and big windows"),
+    ('WASHITSU', "Japanese Room", "Low ceiling, thin walls, tall low sliding windows and a wide low roof"),
+    ('RUIN', "Ruin", "Thick old walls, few windows. Press Ruin to break them"),
+    ('SCIFI', "Sci-Fi Corridor", "Thick walls without windows and wide doors"),
+    ('STONE', "Stone Hall", "Medieval stone: very thick walls, small high windows, steep roof"),
+    ('WAREHOUSE', "Warehouse", "A tall hall with high windows and a big door"),
+    ('SHOP', "Shopfront", "Large shop windows on the ground floor"),
+]
+
 NODE_ORIGIN_ITEMS = [
     ('MANUAL', "Manual", "Saved by you"),
     ('AUTO', "Auto-save", "Saved automatically so unsaved changes are never lost"),
@@ -252,7 +271,15 @@ def _photo(name):
 # Draw walls settings
 # ---------------------------------------------------------------------------
 
+def _style_update(self, context):
+    from . import building_extras
+    building_extras.apply_style(self)
+
+
 class CONCEPTFLOW_PG_draw(PropertyGroup):
+    style: EnumProperty(name="Space Style", items=STYLE_ITEMS, default='NONE',
+                        description="A set of wall sizes, doors, windows and roof for a kind of space",
+                        update=_style_update)
     height: FloatProperty(name="Wall Height", min=0.3, soft_max=20.0, default=3.0, unit='LENGTH')
     thickness: FloatProperty(name="Wall Thickness", min=0.03, soft_max=2.0, default=0.2, unit='LENGTH')
     snap: FloatProperty(name="Grid Snap", description="Snap points to this grid. 0 = no snapping. "
@@ -260,7 +287,63 @@ class CONCEPTFLOW_PG_draw(PropertyGroup):
                         min=0.0, soft_max=5.0, default=0.5, unit='LENGTH')
     floor_slab: BoolProperty(name="Floor When Closed",
                              description="Add a floor slab when the walls are closed into a room", default=True)
+    ceiling: BoolProperty(name="Ceiling When Closed",
+                          description="Add a ceiling slab on top when the walls are closed into a room", default=True)
     slab: FloatProperty(name="Floor Thickness", min=0.02, soft_max=1.0, default=0.15, unit='LENGTH')
+    auto_openings: BoolProperty(name="Doors and Windows",
+                                description="Add windows along the walls and a door when drawing ends. "
+                                            "You can add or move them afterwards by clicking on a wall",
+                                default=True)
+    windows: BoolProperty(name="Windows", default=True)
+    window_spacing: FloatProperty(name="Window Spacing", min=0.8, soft_max=20.0, default=2.5, unit='LENGTH')
+    window_width: FloatProperty(name="Window Width", min=0.2, soft_max=10.0, default=1.2, unit='LENGTH')
+    window_height: FloatProperty(name="Window Height", min=0.2, soft_max=10.0, default=1.3, unit='LENGTH')
+    sill_height: FloatProperty(name="Sill Height", min=0.0, soft_max=6.0, default=0.9, unit='LENGTH')
+    doors: IntProperty(name="Doors", min=0, max=10, default=1)
+    door_width: FloatProperty(name="Door Width", min=0.4, soft_max=5.0, default=1.0, unit='LENGTH')
+    door_height: FloatProperty(name="Door Height", min=1.0, soft_max=6.0, default=2.1, unit='LENGTH')
+    roof_type: EnumProperty(name="Roof Type", items=ROOF_ITEMS, default='FLAT')
+    roof_pitch: FloatProperty(name="Roof Pitch", min=5.0, max=70.0, default=30.0)
+    roof_overhang: FloatProperty(name="Overhang", min=0.0, soft_max=2.0, default=0.3, unit='LENGTH')
+
+
+EXTRA_KIT_ITEMS = [
+    ('ROOM', "Furnished Room", "Table, chairs, bed, sofa, shelves and a few boxes"),
+    ('STORAGE', "Storage", "Crates, barrels and shelves"),
+    ('RUINS', "Clutter", "Crates, barrels, benches and chairs left lying around"),
+]
+
+OPENING_ITEMS = [
+    ('DOOR', "Door", "Click on a wall to add a door"),
+    ('WINDOW', "Window", "Click on a wall to add a window"),
+]
+
+
+def _underlay_update(self, context):
+    from . import building_extras
+    building_extras.on_underlay_changed(self)
+
+
+class CONCEPTFLOW_PG_extras(PropertyGroup):
+    ruin_amount: FloatProperty(name="Ruin Amount", description="How broken the walls, floors and roofs become",
+                               min=0.0, max=1.0, default=0.5, subtype='FACTOR')
+    ruin_seed: IntProperty(name="Seed", description="Changes where things break", min=0, default=0)
+    scatter_kit: EnumProperty(name="Kit", items=EXTRA_KIT_ITEMS, default='ROOM')
+    scatter_density: FloatProperty(name="Density", description="How full the rooms get. 1 = about one prop "
+                                                               "for every 4 square metres",
+                                   min=0.0, soft_max=2.0, default=0.8)
+    scatter_seed: IntProperty(name="Seed", description="Changes where the props go", min=0, default=0)
+    figure_height: FloatProperty(name="Figure Height", description="Height of the scale figure",
+                                 min=0.3, soft_max=3.0, default=1.7, unit='LENGTH')
+    opening_kind: EnumProperty(name="Add", items=OPENING_ITEMS, default='DOOR')
+    underlay_size: FloatProperty(name="Underlay Size",
+                                 description="Real length of the longer side of the underlay image",
+                                 min=0.5, soft_max=500.0, default=20.0, unit='LENGTH', update=_underlay_update)
+    underlay_opacity: FloatProperty(name="Underlay Opacity", min=0.0, max=1.0, default=0.6,
+                                    update=_underlay_update)
+    known_length: FloatProperty(name="Known Length",
+                                description="Real distance between the two points you click when setting the scale",
+                                min=0.01, soft_max=500.0, default=10.0, unit='LENGTH')
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +426,7 @@ class CONCEPTFLOW_PG_scene(PropertyGroup):
     variations: PointerProperty(type=CONCEPTFLOW_PG_variations)
     read_views: PointerProperty(type=CONCEPTFLOW_PG_read_views)
     draw: PointerProperty(type=CONCEPTFLOW_PG_draw)
+    extras: PointerProperty(type=CONCEPTFLOW_PG_extras)
     shot: PointerProperty(type=CONCEPTFLOW_PG_shot)
     photo: PointerProperty(type=CONCEPTFLOW_PG_photo)
 
@@ -359,6 +443,7 @@ classes = (
     CONCEPTFLOW_PG_variations,
     CONCEPTFLOW_PG_read_views,
     CONCEPTFLOW_PG_draw,
+    CONCEPTFLOW_PG_extras,
     CONCEPTFLOW_PG_shot,
     CONCEPTFLOW_PG_photo,
     CONCEPTFLOW_PG_scene,
