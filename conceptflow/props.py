@@ -227,6 +227,28 @@ class CONCEPTFLOW_PG_shot(PropertyGroup):
 
 
 # ---------------------------------------------------------------------------
+# Photo match
+# ---------------------------------------------------------------------------
+
+class CONCEPTFLOW_PG_photo(PropertyGroup):
+    camera_height: FloatProperty(
+        name="Camera Height", description="How high above the ground the photo was taken. It sets the scale: "
+                                          "the ground is z = 0", min=0.05, soft_max=50.0, default=1.6, unit='LENGTH')
+    flip: BoolProperty(
+        name="Flip Directions", description="Turn the world axes by 180 degrees around the vertical axis. "
+                                            "Use it when X and Y point the wrong way", default=False)
+    opacity: FloatProperty(
+        name="Photo Opacity", description="How strongly the photo shows behind the 3D view",
+        min=0.0, max=1.0, default=0.6,
+        get=lambda self: _photo("get_opacity")(self), set=lambda self, v: _photo("set_opacity")(self, v))
+
+
+def _photo(name):
+    from . import photo_match
+    return getattr(photo_match, name)
+
+
+# ---------------------------------------------------------------------------
 # Draw walls settings
 # ---------------------------------------------------------------------------
 
@@ -322,6 +344,7 @@ class CONCEPTFLOW_PG_scene(PropertyGroup):
     read_views: PointerProperty(type=CONCEPTFLOW_PG_read_views)
     draw: PointerProperty(type=CONCEPTFLOW_PG_draw)
     shot: PointerProperty(type=CONCEPTFLOW_PG_shot)
+    photo: PointerProperty(type=CONCEPTFLOW_PG_photo)
 
 
 classes = (
@@ -337,6 +360,7 @@ classes = (
     CONCEPTFLOW_PG_read_views,
     CONCEPTFLOW_PG_draw,
     CONCEPTFLOW_PG_shot,
+    CONCEPTFLOW_PG_photo,
     CONCEPTFLOW_PG_scene,
 )
 

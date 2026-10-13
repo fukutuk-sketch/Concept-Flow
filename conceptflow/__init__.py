@@ -17,9 +17,9 @@ bl_info = {
 
 import traceback
 
-from . import translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, shot_maker, ui
+from . import translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, shot_maker, photo_match, ui
 
-_MODULES = (translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, shot_maker, ui)
+_MODULES = (translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, shot_maker, photo_match, ui)
 
 
 def register():

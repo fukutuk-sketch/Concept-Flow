@@ -62,6 +62,7 @@
 │   ├─ asset_swap.py         アセット差し替え（グレーBOX ⇄ 本番アセット）
 │   ├─ variations.py         Auto Variations（8/16案を小さくレンダー）＋ 結果の適用（v0.3）
 │   ├─ shot_maker.py         コンセプトショットメーカー（目線の高さ・レンズ・画面比率・ショットプリセット・地平線ガイド・クリックでピント）
+│   ├─ photo_match.py        写真とのカメラ合わせ（フォトバッシュ向け。消失点からレンズとカメラの向き・位置を求める）
 │   ├─ read_views.py         Read Views（3Dビューへの GPU オーバーレイ：グレースケール/シルエット/三分割/ぼかし）
 │   ├─ ui.py                 サイドバーのパネル
 │   └─ translations.py       日本語翻訳（英語が基本）
@@ -85,7 +86,7 @@
 ## 4. アーキテクチャ
 
 ### 4.1 登録（`__init__.py`）
-`_MODULES = (translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, shot_maker, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
+`_MODULES = (translations, props, state, graybox, graybox_tools, branch_tree, look_presets, asset_swap, variations, read_views, shot_maker, photo_match, ui)` の順に `register()` し、途中で失敗したら登録済みを逆順で `unregister()` してから例外を投げる。新しいモジュールを足すときは `_MODULES` に追加する（依存先より後ろ、`ui` の前）。
 
 ### 4.2 共通（`common.py`）
 - `iface / tip / rpt`: 実行時に組み立てる UI 文字・ツールチップ・レポートの翻訳。
@@ -273,6 +274,13 @@ Reference Board、Composition Solver、進化型生成、Change Detector、カ�
 - スライダーはシーンのカメラそのものを読み書きする get/set プロパティ。ロール符号・各ショットの位置はオフラインの計算テストで確認（狙いのずれ0、ロール14°が読み戻し14°）。
 - 実機で要確認: パネルの並び、クリックでピントの座標、地平線ガイドの位置（カメラ枠）、ショットの見た目、画面比率の変更、日本語UI。
 
+### 8.9 写真とのカメラ合わせ（2026-10-13、`photo_match.py`。ボードの「photo-camera」案を実装）
+- パネル「Photo Match」。**写真を読み込む**（カメラの背景画像に設定、タグ `cf_photo`。レンダーの画面の形を写真の縦横比に合わせる）→ **カメラを合わせる**（モーダル。カメラビューで、赤2本・緑2本の線を各2点クリックで引き、最後に地面の原点をクリック。Backspace で戻す、Esc で取り消し）→ 消失点2つからレンズ・向き・位置を計算してカメラに設定（適用前のカメラは Branch Tree に自動保存）。
+- 計算（fSpy と同じ考え方）: 画像中心を光学中心とみなし、f² = −(v1·v2)。2つの消失点方向が X・Y 軸、外積が Z（上）。X は画面の右向きに取り、「向きを反転」で 180° 回せる。原点の点を地面（z=0）の点とし、**カメラの高さ**（既定 1.6m）でスケールを決める。
+- オフラインの合成テスト（既知のカメラの線から復元）で、焦点距離は誤差 0.002px 程度で復元、向きと位置も再投影で一致（消失点が遠い／原点が地平線に近いなど悪条件では誤差が大きくなる）。
+- 制限: 光学中心は画像中心と仮定（トリミングした写真は不可）、歪み補正なし、光学的に水平方向の2方向（X・Y）のみ。レンズシフトは 0 にする。
+- 実機で要確認: 背景画像の表示（FIT・前面）、線を引く位置と写真の画素の対応（カメラ枠の計算）、レンズの値（センサー幅 36mm、AUTO）、カメラビューのズーム／パン中の動作、日本語UI。
+
 ## 9. 既知の問題・注意点（ハマりどころ）
 
 ### Blender API
@@ -327,6 +335,7 @@ Reference Board、Composition Solver、進化型生成、Change Detector、カ�
 
 - **v0.1**（小坂さん確認済み）: Graybox ＋ Branch Tree。
 - **v0.2**（2026-10-08、小坂さんへ報告済み・次へ進む確認待ちの状態で v0.3 着手の指示）: Look Presets 5種、Asset Swap。調整: GOLDEN HOUR が閉じた部屋で真っ黒になる問題を、`window` 面光源の追加で解決。HORROR / MOONLIGHT / NOIR を調整。`swap_clear` が孤立した差し替え後オブジェクトも掃除するよう修正。
+- 2026-10-13: 写真とのカメラ合わせを追加（8.9）。
 - 2026-10-12: コンセプトショットメーカーを追加（8.8）。
 - 2026-10-12: 実機確認を受けた見直し（8.7）。霧を箱ボリュームに変更（太陽が消える問題の対策）、建物ツール拡張（壁を描く・屋根・バルコニー・小物・階段・街並み）、Variations の狭い部屋カメラと適用操作。Blender 実機では未検証。
 - 2026-10-09: リポジトリ構成を整理（`conceptflow-blender-repo/` の中身を直下へ）、`.gitignore` 追加。v0.3 の **Auto Variations** と基本的な **Compare & Apply** を実装（`variations.py`、`look_presets` のカスタムルック対応、UIパネル、翻訳）。Blender 実機では未検証（8.5 の確認リスト）。Read Views は未着手。

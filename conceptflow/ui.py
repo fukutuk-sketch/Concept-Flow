@@ -5,7 +5,7 @@
 import bpy
 from bpy.types import Panel
 
-from . import branch_tree, graybox_tools, look_presets, read_views, shot_maker, variations
+from . import branch_tree, graybox_tools, look_presets, photo_match, read_views, shot_maker, variations
 from .common import icon, iface
 
 PART_BUTTONS = (
@@ -410,6 +410,42 @@ class CONCEPTFLOW_PT_shot_maker(_ConceptFlowPanel, Panel):
         layout.prop(shot, "show_horizon", toggle=True, icon=icon('NORMALIZE_FCURVES'))
 
 
+class CONCEPTFLOW_PT_photo_match(_ConceptFlowPanel, Panel):
+    bl_idname = "CONCEPTFLOW_PT_photo_match"
+    bl_label = "Photo Match"
+    bl_order = 6
+    bl_options = {'DEFAULT_CLOSED'}
+
+    def draw_header(self, context):
+        self.layout.label(text="", icon=icon('IMAGE_BACKGROUND'))
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        photo = scene.conceptflow.photo
+        cam = scene.camera
+        has_photo = cam is not None and cam.type == 'CAMERA' and photo_match.photo_background(cam) is not None
+
+        layout.operator("conceptflow.photo_load", icon=icon('FILE_IMAGE'))
+        col = layout.column(align=True)
+        col.enabled = has_photo and context.mode == 'OBJECT'
+        col.scale_y = 1.4
+        col.operator("conceptflow.photo_match", icon=icon('CON_CAMERASOLVER'))
+        col = layout.column(align=True)
+        col.prop(photo, "camera_height")
+        col.prop(photo, "flip")
+        row = layout.row(align=True)
+        row.enabled = has_photo
+        row.prop(photo, "opacity", slider=True)
+        row.operator("conceptflow.photo_remove", text="", icon=icon('X'))
+        box = layout.box()
+        col = box.column(align=True)
+        col.label(text="1. Load a photo", icon=icon('INFO'))
+        col.label(text="2. Match Camera: 2 red lines, 2 green lines,")
+        col.label(text="   then the world origin on the ground")
+        col.label(text="3. Build with graybox parts on the photo")
+
+
 classes = (
     CONCEPTFLOW_PT_graybox,
     CONCEPTFLOW_PT_draw_walls,
@@ -420,6 +456,7 @@ classes = (
     CONCEPTFLOW_PT_variations,
     CONCEPTFLOW_PT_read_views,
     CONCEPTFLOW_PT_shot_maker,
+    CONCEPTFLOW_PT_photo_match,
 )
 
 
